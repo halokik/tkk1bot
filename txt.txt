@@ -1,0 +1,2 @@
+QUERY_API_URL=http://95.211.190.114
+QUERY_API_URL=http://localhost:3000
