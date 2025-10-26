@@ -28,14 +28,14 @@ class AdminModule:
         self.client = bot_instance.client
         self.db = bot_instance.db
         
-        # 等待通知回复的消息ID集合
-        self.pending_notifications = set()
-        
         # 等待客服设置回复的消息ID集合
         self.pending_service_set = set()
         
-        # 通知计数器（用于生成简短的回调数据）
-        self.notification_counter = 0
+        # 管理员状态（用于跟踪当前操作）
+        self.admin_state = {}
+        
+        # 存储待广播的消息
+        self.broadcast_messages = {}
         
         logger.info(f"管理员模块已加载，管理员ID: {config.ADMIN_IDS}")
     
@@ -77,21 +77,47 @@ class AdminModule:
     def register_handlers(self):
         """注册管理员事件处理器"""
         
-        def _build_help_main():
+        async def _build_help_main():
             """构建管理员命令中心主菜单文本与按钮（统一复用）"""
+            # 获取统计数据
+            query_stats_today = await self.db.get_query_stats('day')
+            recharge_stats_today = await self.db.get_recharge_stats('day')
+            total_users = await self.db.get_total_bot_users()
+            
+            # 获取总查询次数
+            cursor = await self.db.db.execute("""
+                SELECT 
+                    (SELECT COUNT(*) FROM query_logs) +
+                    (SELECT COUNT(*) FROM text_query_logs) AS total_queries
+            """)
+            total_queries = (await cursor.fetchone())[0]
+            await cursor.close()
+            
+            # 获取总订单数量
+            cursor = await self.db.db.execute("""
+                SELECT COUNT(*) FROM recharge_orders WHERE status = 'completed'
+            """)
+            total_orders = (await cursor.fetchone())[0]
+            await cursor.close()
+            
             help_text = (
-                '📋 <b>管理员命令中心</b>\n\n'
+                '🧘‍♀️ <b>管理员命令中心</b>\n\n'
                 '欢迎使用管理员功能！\n\n'
+                f'<b>总用户数量：</b><code>{total_users}</code>\n'
+                f'<b>今日新增：</b><code>{query_stats_today.get("new_users", 0)}</code>\n'
+                f'<b>总订单数量：</b><code>{total_orders}</code>\n'
+                f'<b>今日订单：</b><code>{recharge_stats_today.get("completed_orders", 0)}</code>\n'
+                f'<b>总查询次数：</b><code>{total_queries}</code>\n\n'
                 '请选择要查看的功能分类：'
             )
             buttons = [
                 [
-                    Button.inline('📊 统计查询', 'help_stats'),
+                    Button.inline('💫 统计信息', 'help_stats'),
                     Button.inline('💰 余额管理', 'help_balance'),
                 ],
                 [
                     Button.inline('⚙️ 系统配置', 'help_config'),
-                    Button.inline('🔒 隐藏用户', 'help_hidden'),
+                    Button.inline('☘️ 白名单', 'help_hidden'),
                 ],
                 [
                     Button.inline('💎 VIP管理', 'help_vip'),
@@ -99,19 +125,18 @@ class AdminModule:
                 ],
                 [
                     Button.inline('📢 通知功能', 'help_notify'),
-                    Button.inline('💡 使用提示', 'help_tips'),
                 ]
             ]
             return help_text, buttons
         
-        @self.client.on(events.NewMessage(pattern='/adminhelp'))
+        @self.client.on(events.NewMessage(pattern='/a'))
         async def adminhelp_handler(event):
             """处理管理员帮助命令"""
             if not self.is_admin(event.sender_id):
                 await event.respond('❌ 此命令仅限管理员使用')
                 return
             
-            help_text, buttons = _build_help_main()
+            help_text, buttons = await _build_help_main()
             await event.respond(help_text, buttons=buttons, parse_mode='html')
             admin_info = await self._format_admin_log(event)
             logger.info(f"{admin_info} 查看了管理员帮助")
@@ -125,12 +150,27 @@ class AdminModule:
             
             try:
                 data = event.data.decode('utf-8')
+                
+                # 排除 help_main，由专门的处理器处理
+                if data == 'help_main':
+                    return
+                
+                # 统计查询按钮直接显示统计数据（复用）
+                if data == 'help_stats':
+                    await show_stats(event, is_callback=True, category='query', period='day')
+                    return
+                
+                # 通知功能按钮直接进入发送通知状态（复用）
+                if data == 'help_notify':
+                    await start_broadcast(event, is_callback=True)
+                    return
+                
                 category = data.replace('help_', '')
                 
                 # 根据分类返回不同的帮助内容
                 help_texts = {
                     'stats': (
-                        '📊 <b>统计查询功能</b>\n\n'
+                        '💫 <b>统计信息功能</b>\n\n'
                         '<b>/tj</b> - 查看数据统计\n'
                         '• 显示查询次数、活跃用户、新增用户\n'
                         '• 支持查看日/周/月/年数据\n'
@@ -190,7 +230,7 @@ class AdminModule:
                         '💡 所有配置立即生效'
                     ),
                     'hidden': (
-                        '🔒 <b>隐藏用户管理</b>\n\n'
+                        '☘️ <b>白名单管理</b>\n\n'
                         '<b>/hide &lt;用户名/ID&gt; [原因]</b>\n'
                         '• 隐藏指定用户的数据\n'
                         '• 用户查询时显示"已隐藏"\n'
@@ -265,27 +305,6 @@ class AdminModule:
                         '• <code>&lt;code&gt;代码&lt;/code&gt;</code> - <code>代码</code>\n'
                         '• <code>&lt;a href="url"&gt;链接&lt;/a&gt;</code>\n\n'
                         '💡 通知会发送给所有使用过Bot的用户'
-                    ),
-                    'tips': (
-                        '💡 <b>使用提示</b>\n\n'
-                        '<b>💰 金额单位</b>\n'
-                        '• 所有金额单位为 积分\n'
-                        '• 签到奖励为整数\n\n'
-                        '<b>📝 用户ID获取</b>\n'
-                        '• 从运行日志中查看\n'
-                        '• 日志格式: 用户 姓名 (@用户名, ID:数字)\n\n'
-                        '<b>🔒 隐藏用户</b>\n'
-                        '• 查询被隐藏用户时显示"已隐藏"\n'
-                        '• 查询失败不扣费\n'
-                        '• 建议同时隐藏用户名和ID\n\n'
-                        '<b>⚙️ 配置修改</b>\n'
-                        '• 签到范围修改后下次签到生效\n'
-                        '• 查询费用修改后立即生效\n\n'
-                        '<b>📊 数据统计</b>\n'
-                        '• 日数据: 今日 00:00 起\n'
-                        '• 周数据: 本周一 00:00 起\n'
-                        '• 月数据: 本月1日 00:00 起\n'
-                        '• 年数据: 今年1月1日 00:00 起'
                     )
                 }
                 
@@ -318,68 +337,57 @@ class AdminModule:
                 await event.answer('❌ 权限不足', alert=True)
                 return
             
-            help_text, buttons = _build_help_main()
+            help_text, buttons = await _build_help_main()
             await event.answer()
             await event.edit(help_text, buttons=buttons, parse_mode='html')
         
-        @self.client.on(events.NewMessage(pattern='/tj'))
-        async def stats_handler(event):
-            """处理统计命令"""
-            if not self.is_admin(event.sender_id):
-                await event.respond('❌ 此命令仅限管理员使用')
-                return
-            
+        async def start_broadcast(event_or_callback, is_callback=False):
+            """启动广播通知的通用函数（复用）"""
             try:
-                # 默认分类: 查询数据，默认周期：今日
-                category = 'query'
-                period = 'day'
-                stats = await self.db.get_query_stats(period)
-                message = self._format_stats(stats)
+                # 设置管理员状态为正在发送通知
+                sender_id = event_or_callback.sender_id
+                self.admin_state[sender_id] = 'broadcasting'
                 
-                # 分类与周期按钮
-                def build_buttons(cur_category: str, cur_period: str):
-                    cat_names = {'query': '查询数据', 'user': '用户数据', 'recharge': '充值数据'}
-                    cats_row = []
-                    for c, name in cat_names.items():
-                        text = f"✅ {name}" if c == cur_category else name
-                        cats_row.append(Button.inline(text, f'stats_{c}_{cur_period}'))
-                    
-                    period_names = [('day','今日'), ('yesterday','昨日'), ('week','本周'), ('month','本月'), ('year','今年')]
-                    p_row1 = []
-                    p_row2 = []
-                    for key, name in period_names:
-                        text = f"✅ {name}" if key == cur_period else name
-                        btn = Button.inline(text, f'stats_{cur_category}_{key}')
-                        (p_row1 if key in ['day','yesterday','week'] else p_row2).append(btn)
-                    return [cats_row, p_row1, p_row2]
+                message = (
+                    '📢 <b>发送通知</b>\n\n'
+                    '请发送要广播的通知内容\n\n'
+                    '✨ 支持 HTML 格式：\n'
+                    '<code>&lt;b&gt;粗体&lt;/b&gt;</code>\n'
+                    '<code>&lt;i&gt;斜体&lt;/i&gt;</code>\n'
+                    '<code>&lt;code&gt;代码&lt;/code&gt;</code>\n'
+                    '<code>&lt;a href="url"&gt;链接&lt;/a&gt;</code>'
+                )
+                buttons = [[Button.inline('🚫 取消', 'notify_cancel')]]
                 
-                buttons = build_buttons(category, period)
-                await event.respond(self._format_stats(stats), buttons=buttons, parse_mode='html')
-                admin_info = await self._format_admin_log(event)
-                logger.info(f"{admin_info} 查询了统计数据")
+                if is_callback:
+                    await event_or_callback.answer()
+                    await event_or_callback.edit(message, buttons=buttons, parse_mode='html')
+                else:
+                    await event_or_callback.respond(message, buttons=buttons, parse_mode='html')
                 
+                admin_info = await self._format_admin_log(event_or_callback)
+                logger.info(f"{admin_info} 进入广播模式")
+                
+                return True
             except Exception as e:
-                logger.error(f"统计命令处理失败: {e}")
-                await event.respond('❌ 获取统计数据失败')
+                logger.error(f"启动广播失败: {e}", exc_info=True)
+                if is_callback:
+                    try:
+                        await event_or_callback.answer('❌ 启动失败', alert=True)
+                    except:
+                        await event_or_callback.respond('❌ 启动失败')
+                else:
+                    await event_or_callback.respond('❌ 启动失败')
+                return False
         
-        @self.client.on(events.CallbackQuery(pattern=r'^stats_'))
-        async def stats_callback_handler(event):
-            """处理统计数据按钮回调"""
-            if not self.is_admin(event.sender_id):
-                await event.answer('❌ 权限不足', alert=True)
-                return
-            
+        async def show_stats(event_or_callback, is_callback=False, category='query', period='day'):
+            """显示统计数据的通用函数（复用）"""
             try:
-                # 解析: stats_<category>_<period>
-                data = event.data.decode('utf-8')
-                _, category, period = data.split('_', 2)
-                
-                # 拉取数据
+                # 获取统计数据
                 if category == 'query':
                     stats = await self.db.get_query_stats(period)
                     message = self._format_stats(stats)
                 elif category == 'user':
-                    # 使用机器人用户数据（按周期）
                     qstats = await self.db.get_query_stats(period)
                     total_users = await self.db.get_total_bot_users()
                     message = (
@@ -407,6 +415,7 @@ class AdminModule:
                     for c, name in cat_names.items():
                         text = f"✅ {name}" if c == cur_category else name
                         cats_row.append(Button.inline(text, f'stats_{c}_{cur_period}'))
+                    
                     period_names = [('day','今日'), ('yesterday','昨日'), ('week','本周'), ('month','本月'), ('year','今年')]
                     p_row1 = []
                     p_row2 = []
@@ -414,12 +423,53 @@ class AdminModule:
                         text = f"✅ {name}" if key == cur_period else name
                         btn = Button.inline(text, f'stats_{cur_category}_{key}')
                         (p_row1 if key in ['day','yesterday','week'] else p_row2).append(btn)
-                    return [cats_row, p_row1, p_row2]
+                    
+                    # 添加返回主菜单按钮
+                    return [cats_row, p_row1, p_row2, [Button.inline('🔙 返回主菜单', 'help_main')]]
                 
                 buttons = build_buttons(category, period)
                 
-                await event.answer()
-                await event.edit(message, buttons=buttons, parse_mode='html')
+                # 根据是回调还是命令，选择响应方式
+                if is_callback:
+                    await event_or_callback.answer()
+                    await event_or_callback.edit(message, buttons=buttons, parse_mode='html')
+                else:
+                    await event_or_callback.respond(message, buttons=buttons, parse_mode='html')
+                
+                return True
+            except Exception as e:
+                logger.error(f"显示统计数据失败: {e}")
+                if is_callback:
+                    await event_or_callback.answer('❌ 获取统计数据失败', alert=True)
+                else:
+                    await event_or_callback.respond('❌ 获取统计数据失败')
+                return False
+        
+        @self.client.on(events.NewMessage(pattern='/tj'))
+        async def stats_handler(event):
+            """处理统计命令"""
+            if not self.is_admin(event.sender_id):
+                await event.respond('❌ 此命令仅限管理员使用')
+                return
+            
+            await show_stats(event, is_callback=False, category='query', period='day')
+            admin_info = await self._format_admin_log(event)
+            logger.info(f"{admin_info} 查询了统计数据")
+        
+        @self.client.on(events.CallbackQuery(pattern=r'^stats_'))
+        async def stats_callback_handler(event):
+            """处理统计数据按钮回调（复用 show_stats）"""
+            if not self.is_admin(event.sender_id):
+                await event.answer('❌ 权限不足', alert=True)
+                return
+            
+            try:
+                # 解析: stats_<category>_<period>
+                data = event.data.decode('utf-8')
+                _, category, period = data.split('_', 2)
+                
+                # 调用通用统计显示函数
+                await show_stats(event, is_callback=True, category=category, period=period)
                 
                 admin_info = await self._format_admin_log(event)
                 logger.info(f"{admin_info} 切换到{category}-{period}统计")
@@ -1303,113 +1353,47 @@ class AdminModule:
         
         @self.client.on(events.NewMessage(pattern='/tz'))
         async def notify_handler(event):
-            """处理通知命令"""
+            """处理通知命令（复用 start_broadcast）"""
             if not self.is_admin(event.sender_id):
                 await event.respond('❌ 此命令仅限管理员使用')
                 return
             
-            try:
-                # 发送提示消息
-                sent_msg = await event.respond(
-                    '📢 <b>发送通知</b>\n\n'
-                    '请引用回复此消息，并输入要发送的通知内容。\n\n'
-                    '支持 HTML 格式，例如：\n'
-                    '<code>&lt;b&gt;粗体&lt;/b&gt;</code>\n'
-                    '<code>&lt;i&gt;斜体&lt;/i&gt;</code>\n'
-                    '<code>&lt;code&gt;代码&lt;/code&gt;</code>\n'
-                    '<code>&lt;a href="url"&gt;链接&lt;/a&gt;</code>',
-                    parse_mode='html'
-                )
-                
-                # 记录消息ID，等待回复
-                self.pending_notifications.add(sent_msg.id)
-                
-                admin_info = await self._format_admin_log(event)
-                logger.info(f"{admin_info} 准备发送通知")
-                
-            except Exception as e:
-                logger.error(f"通知命令处理失败: {e}")
-                await event.respond('❌ 命令处理失败')
+            await start_broadcast(event, is_callback=False)
+            admin_info = await self._format_admin_log(event)
+            logger.info(f"{admin_info} 准备发送通知")
         
-        @self.client.on(events.NewMessage())
-        async def notify_reply_handler(event):
-            """处理通知内容回复"""
-            # 检查是否为管理员
+        @self.client.on(events.CallbackQuery(pattern=r'^notify_cancel$'))
+        async def cancel_notify_handler(event):
+            """处理取消通知"""
             if not self.is_admin(event.sender_id):
+                await event.answer('❌ 权限不足', alert=True)
                 return
             
-            # 检查是否为回复消息
-            if not event.is_reply:
-                return
+            # 清除状态和缓存
+            self.admin_state.pop(event.sender_id, None)
+            self.broadcast_messages.pop(event.sender_id, None)
             
-            try:
-                # 获取被回复的消息
-                reply_to_msg = await event.get_reply_message()
-                
-                # 检查是否回复了待处理的通知消息
-                if reply_to_msg.id not in self.pending_notifications:
-                    return
-                
-                # 移除待处理标记
-                self.pending_notifications.discard(reply_to_msg.id)
-                
-                # 获取通知内容
-                notification_content = event.text
-                
-                if not notification_content or notification_content.startswith('/'):
-                    await event.respond('❌ 通知内容不能为空或命令')
-                    return
-                
-                # 生成通知ID
-                self.notification_counter += 1
-                notify_id = self.notification_counter
-                
-                # 确认发送
-                confirm_buttons = [
-                    [
-                        Button.inline('✅ 确认发送', f'notify_send_{notify_id}'),
-                        Button.inline('❌ 取消', 'notify_cancel')
-                    ]
-                ]
-                
-                # 缓存通知内容
-                cache_key = f"notify_{notify_id}"
-                self.bot.query_cache[cache_key] = notification_content
-                
-                await event.respond(
-                    f'📢 <b>通知预览</b>\n\n'
-                    f'{notification_content}\n\n'
-                    f'━━━━━━━━━━━━━━━━━━\n'
-                    f'确认要发送此通知吗？',
-                    buttons=confirm_buttons,
-                    parse_mode='html'
-                )
-                
-                admin_info = await self._format_admin_log(event)
-                logger.info(f"{admin_info} 准备确认通知")
-                
-            except Exception as e:
-                logger.error(f"通知回复处理失败: {e}")
+            await event.answer('已取消')
+            await event.delete()
+            
+            admin_info = await self._format_admin_log(event)
+            logger.info(f"{admin_info} 取消了通知")
         
-        @self.client.on(events.CallbackQuery(pattern=r'^notify_send_'))
-        async def confirm_notify_handler(event):
-            """处理确认发送通知"""
+        @self.client.on(events.CallbackQuery(pattern=r'^notify_start$'))
+        async def start_notify_handler(event):
+            """处理开始发送通知的回调"""
             if not self.is_admin(event.sender_id):
                 await event.answer('❌ 权限不足', alert=True)
                 return
             
             try:
-                # 解析通知ID
-                data = event.data.decode('utf-8')
-                notify_id = int(data.replace('notify_send_', ''))
-                
-                # 获取缓存的通知内容
-                cache_key = f"notify_{notify_id}"
-                notification_content = self.bot.query_cache.get(cache_key)
-                
-                if not notification_content:
-                    await event.answer('❌ 通知内容已过期', alert=True)
+                if event.sender_id not in self.broadcast_messages:
+                    await event.answer('❌ 通知内容已失效，请重新发起', alert=True)
                     return
+                
+                notification_content = self.broadcast_messages.pop(event.sender_id)
+                
+                await event.answer('开始发送通知...')
                 
                 # 获取所有使用过Bot的用户
                 cursor = await self.db.db.execute("""
@@ -1419,12 +1403,12 @@ class AdminModule:
                 await cursor.close()
                 
                 if not user_ids:
-                    await event.answer('❌ 没有找到用户', alert=True)
+                    await event.edit('❌ 没有找到用户', buttons=None)
                     return
                 
-                # 响应回调
-                await event.answer('开始发送通知...')
-                await event.edit('📤 正在发送通知，请稍候...')
+                # 开始计时
+                import time
+                start_time = time.time()
                 
                 # 发送通知
                 success_count = 0
@@ -1442,36 +1426,26 @@ class AdminModule:
                         logger.debug(f"发送通知给用户 {user_id} 失败: {e}")
                         fail_count += 1
                 
-                # 清理缓存
-                del self.bot.query_cache[cache_key]
+                # 计算用时
+                end_time = time.time()
+                duration = round(end_time - start_time, 2)
                 
                 # 报告结果
                 result_msg = (
-                    f'✅ <b>通知发送完成</b>\n\n'
-                    f'成功: {success_count} 人\n'
-                    f'失败: {fail_count} 人\n'
-                    f'总计: {len(user_ids)} 人'
+                    f'📡 <b>通知已完成</b>\n\n'
+                    f'用时: <code>{duration}</code> 秒\n'
+                    f'总数: <code>{len(user_ids)}</code>\n'
+                    f'成功: <code>{success_count}</code>\n'
+                    f'失败: <code>{fail_count}</code>'
                 )
                 
                 await event.edit(result_msg, buttons=None, parse_mode='html')
                 admin_info = await self._format_admin_log(event)
-                logger.info(f"{admin_info} 发送了通知 (成功:{success_count}, 失败:{fail_count})")
+                logger.info(f"{admin_info} 发送了通知 (成功:{success_count}, 失败:{fail_count}, 用时:{duration}秒)")
                 
             except Exception as e:
-                logger.error(f"确认通知处理失败: {e}")
+                logger.error(f"发送通知失败: {e}")
                 await event.answer('❌ 发送失败', alert=True)
-        
-        @self.client.on(events.CallbackQuery(pattern=r'^notify_cancel$'))
-        async def cancel_notify_handler(event):
-            """处理取消通知"""
-            if not self.is_admin(event.sender_id):
-                await event.answer('❌ 权限不足', alert=True)
-                return
-            
-            await event.answer('已取消')
-            await event.edit('❌ 已取消发送通知', buttons=None)
-            admin_info = await self._format_admin_log(event)
-            logger.info(f"{admin_info} 取消了通知")
         
         @self.client.on(events.NewMessage(pattern=r'^/setservice$'))
         async def set_service_handler(event):
@@ -1568,7 +1542,7 @@ class AdminModule:
                 usernames = list(dict.fromkeys(usernames))  # 去重并保序
                 if not usernames:
                     await event.respond('❌ 未解析到有效的用户名，请检查输入')
-                    return
+                    raise events.StopPropagation()
                 # 保存到表
                 result = await self.db.add_service_accounts(usernames, event.sender_id)
                 # 移除等待状态
@@ -1589,9 +1563,73 @@ class AdminModule:
                 await event.respond(text, parse_mode='html')
                 admin_info = await self._format_admin_log(event)
                 logger.info(f"{admin_info} 更新了客服账号: {usernames}")
+                
+                # 阻止事件继续传播
+                raise events.StopPropagation()
             except Exception as e:
                 logger.error(f"处理客服设置回复失败: {e}")
                 await event.respond('❌ 设置失败，请重试')
+                raise events.StopPropagation()
+        
+        @self.client.on(events.NewMessage())
+        async def broadcast_message_handler(event):
+            """处理通知消息输入"""
+            # 检查是否为管理员
+            if not self.is_admin(event.sender_id):
+                return
+            
+            # 检查管理员状态
+            if event.sender_id not in self.admin_state:
+                return
+            
+            state = self.admin_state.get(event.sender_id)
+            
+            # 处理广播消息
+            if state == 'broadcasting':
+                # 检查是否为命令（跳过命令）
+                if event.text and event.text.startswith('/'):
+                    return
+                
+                # 清除状态
+                self.admin_state.pop(event.sender_id, None)
+                
+                # 保存通知内容
+                notification_content = event.text
+                
+                if not notification_content:
+                    await event.respond('❌ 通知内容不能为空')
+                    raise events.StopPropagation()
+                
+                # 获取用户总数
+                cursor = await self.db.db.execute("""
+                    SELECT COUNT(DISTINCT querier_user_id) FROM query_logs
+                """)
+                total_users = (await cursor.fetchone())[0]
+                await cursor.close()
+                
+                # 保存通知内容
+                self.broadcast_messages[event.sender_id] = notification_content
+                
+                # 发送确认消息
+                await event.respond(
+                    f'📡 <b>广播确认</b>\n\n'
+                    f'当前需要广播人数：<code>{total_users}</code>\n\n'
+                    f'<b>通知内容预览：</b>\n'
+                    f'{notification_content}\n\n'
+                    f'━━━━━━━━━━━━━━━━━━\n'
+                    f'⚠️ 广播进行过程中，请勿删除这条消息！',
+                    buttons=[[
+                        Button.inline('🚫 取消', 'notify_cancel'),
+                        Button.inline('✅ 开始', 'notify_start')
+                    ]],
+                    parse_mode='html'
+                )
+                
+                admin_info = await self._format_admin_log(event)
+                logger.info(f"{admin_info} 准备确认广播")
+                
+                # 阻止事件继续传播，防止被其他处理器处理
+                raise events.StopPropagation()
     
     def _format_stats(self, stats: dict) -> str:
         """

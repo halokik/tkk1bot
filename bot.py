@@ -623,7 +623,7 @@ class TelegramQueryBot:
         
         # 个人中心消息
         message = (
-            f'👤 <b>个人中心</b>\n\n'
+            f'🧘‍♀️ <b>个人中心</b>\n\n'
             f'{vip_display}\n\n'
             f'💰 <b>账户余额</b>\n'
             f'当前余额: <code>{balance_str} 积分</code>\n'
@@ -687,7 +687,10 @@ class TelegramQueryBot:
                 inline_buttons = [
                     [
                         Button.inline('🎁 每日签到', 'cmd_checkin'),
-                        Button.inline('👤 个人中心', 'cmd_balance'),
+                        Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
+                    ],
+                    [
+                        Button.inline('🌟 账号充值', 'cmd_recharge_menu'),
                     ],
                     [
                         Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
@@ -697,7 +700,7 @@ class TelegramQueryBot:
                 # 先发送带内联按钮的消息
                 await event.respond(
                     f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
-                    f'👤 <b>您的信息</b>\n'
+                    f'🧘‍♀️ <b>您的信息</b>\n'
                     f'• 用户ID: <code>{event.sender_id}</code>\n'
                     f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
                     f'🎁 <b>邀请好友</b>\n'
@@ -721,7 +724,7 @@ class TelegramQueryBot:
                 
                 # 再发送一条带键盘按钮的消息
                 keyboard_buttons = [
-                    [Button.text('🏠 开始', resize=True), Button.text('👤 个人中心', resize=True)],
+                    [Button.text('🏠 开始', resize=True), Button.text('🧘‍♀️ 个人中心', resize=True)],
                     [Button.text('🔍 关键词查询', resize=True)],
                     [Button.text('💳 购买积分', resize=True), Button.text('💎 购买VIP', resize=True)]
                 ]
@@ -742,7 +745,7 @@ class TelegramQueryBot:
                 )
                 logger.info(f"用户 {user_info} 启动了Bot")
         
-        @self.client.on(events.NewMessage(pattern=r'^(🏠 开始|👤 个人中心|💳 购买积分|💎 购买VIP|🔍 关键词查询|📞 联系客服)$'))
+        @self.client.on(events.NewMessage(pattern=r'^(🏠 开始|🧘‍♀️ 个人中心|💳 购买积分|💎 购买VIP|🔍 关键词查询|📞 联系客服)$'))
         async def keyboard_button_handler(event):
             """处理键盘按钮"""
             text = event.text.strip()
@@ -775,7 +778,7 @@ class TelegramQueryBot:
                     inline_buttons = [
                         [
                             Button.inline('🎁 每日签到', 'cmd_checkin'),
-                            Button.inline('👤 个人中心', 'cmd_balance'),
+                            Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
                         ],
                         [
                             Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
@@ -785,7 +788,7 @@ class TelegramQueryBot:
                     # 先发送带内联按钮的消息
                     await event.respond(
                         f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
-                        f'👤 <b>您的信息</b>\n'
+                        f'🧘‍♀️ <b>您的信息</b>\n'
                         f'• 用户ID: <code>{event.sender_id}</code>\n'
                         f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
                         f'🎁 <b>邀请好友</b>\n'
@@ -809,7 +812,7 @@ class TelegramQueryBot:
                     
                     # 再发送一条带键盘按钮的消息（刷新键盘）
                     keyboard_buttons = [
-                        [Button.text('🏠 开始', resize=True), Button.text('👤 个人中心', resize=True)],
+                        [Button.text('🏠 开始', resize=True), Button.text('🧘‍♀️ 个人中心', resize=True)],
                         [Button.text('🔍 关键词查询', resize=True)],
                         [Button.text('💳 购买积分', resize=True), Button.text('💎 购买VIP', resize=True)]
                     ]
@@ -829,7 +832,7 @@ class TelegramQueryBot:
                     )
                     logger.info(f"用户 {user_info} 通过键盘按钮启动了Bot")
             
-            elif text == '👤 个人中心':
+            elif text == '🧘‍♀️ 个人中心':
                 # 显示个人中心
                 async with self.semaphore:
                     message, buttons = await self._build_personal_center(event.sender_id)
@@ -1069,6 +1072,118 @@ class TelegramQueryBot:
                     await event.answer()
                     message, buttons = await self._build_personal_center(event.sender_id)
                     await event.edit(message, buttons=buttons, parse_mode='html')
+                
+                elif command == 'recharge_menu':
+                    # 显示账号充值菜单
+                    await event.answer()
+                    
+                    # 获取实际配置
+                    from exchange import exchange_manager
+                    
+                    # 获取VIP价格（积分）
+                    vip_price_points = float(await self.db.get_config('vip_monthly_price', '200'))
+                    # 转换为USDT
+                    vip_price_usdt = await exchange_manager.points_to_usdt(vip_price_points)
+                    
+                    # 获取USDT汇率（1 USDT = X 积分）
+                    usdt_rate = await exchange_manager.get_usdt_rate()
+                    
+                    # 计算示例：100 USDT能买多少积分
+                    example_usdt = 100
+                    example_points = example_usdt * usdt_rate
+                    
+                    # 格式化价格显示
+                    points_per_usdt = f'{usdt_rate:.1f}' if usdt_rate != int(usdt_rate) else f'{int(usdt_rate)}'
+                    vip_usdt_str = f'{vip_price_usdt:.1f}' if vip_price_usdt != int(vip_price_usdt) else f'{int(vip_price_usdt)}'
+                    example_points_str = f'{example_points:.0f}' if example_points == int(example_points) else f'{example_points:.1f}'
+                    
+                    message = (
+                        f'🛍 <b>价格介绍</b>\n'
+                        f'1. 积分价格为 {points_per_usdt} 积分/USDT\n'
+                        f'2. 会员价格为 {vip_usdt_str} USDT/月\n'
+                        f'3. 充值成功系统自动到账\n'
+                        f'4. USDT充值汇率为1:1，可用于兑换积分和会员或提现等其他操作\n\n'
+                        f'⚠️ <b>注意事项：</b>\n'
+                        f'1. 由于USDT功能未完善，请谨慎选择充值USDT\n'
+                        f'2. 因用户自己选错充值方式导致的纠纷一律不予处理\n'
+                        f'3. 充值通道为USDT TRC20\n'
+                        f'4. 转账金额必须完全对应，否则会充值失败\n'
+                        f'5. 注意部分交易所存在扣手续费问题，导致实际上链金额错误\n\n'
+                        f'━━━━━━━━━━━━━━━━━━\n\n'
+                        f'🟢    <b>充值积分：</b>{example_usdt} USDT\n'
+                        f'├─  到账积分：{example_points_str} 积分\n'
+                        f'└─  包含赠送：0 积分\n\n'
+                        f'⭐️    <b>充值会员：</b>{vip_usdt_str} USDT\n'
+                        f'├─  到账会员：30 天\n'
+                        f'└─  包含赠送：0 天\n\n'
+                        f'💰    <b>充值USDT：</b>{example_usdt} USDT\n'
+                        f'├─  到账USDT：{example_usdt} USDT\n'
+                        f'└─  包含赠送：0 USDT\n\n'
+                        f'💡 <b>请选择充值类型：</b>'
+                    )
+                    
+                    buttons = [
+                        [Button.inline('🟢 充值积分', 'cmd_buy_points')],
+                        [Button.inline('⭐️ 充值会员', 'cmd_buy_vip')],
+                        [Button.inline('💰 充值USDT', 'cmd_buy_usdt')],
+                        [Button.inline('🔙 返回', 'cmd_back_to_start')]
+                    ]
+                    
+                    await event.edit(message, buttons=buttons, parse_mode='html')
+                
+                elif command == 'buy_points':
+                    # 充值积分 - 显示充值选项
+                    await event.answer()
+                    
+                    # 检查充值功能是否启用
+                    if not config.RECHARGE_WALLET_ADDRESS:
+                        await event.answer('❌ 充值功能暂未开放', alert=True)
+                        return
+                    
+                    # 检查是否有未完成的订单
+                    active_order = await self.db.get_active_order(event.sender_id)
+                    if active_order:
+                        await event.answer('⚠️ 您有未完成的订单', alert=True)
+                        return
+                    
+                    # 显示充值选项
+                    buttons = [
+                        [Button.inline('💵 USDT充值', 'recharge_usdt')],
+                        [Button.inline('💎 TRX充值', 'recharge_trx')],
+                        [Button.inline('🔙 返回', 'cmd_recharge_menu')]
+                    ]
+                    
+                    # 获取最小充值金额
+                    min_amount = float(await self.db.get_config('recharge_min_amount', '10'))
+                    
+                    await event.edit(
+                        '💳 <b>选择充值方式</b>\n\n'
+                        f'最小充值金额: <code>{min_amount}</code>\n\n'
+                        '请选择您要使用的充值币种：',
+                        buttons=buttons,
+                        parse_mode='html'
+                    )
+                
+                elif command == 'buy_vip':
+                    # 开通VIP - 显示VIP购买菜单
+                    await event.answer()
+                    if self.vip_module:
+                        await self.vip_module.show_vip_purchase_menu(event, is_edit=True)
+                    else:
+                        await event.answer('❌ VIP功能暂不可用', alert=True)
+                
+                elif command == 'buy_usdt':
+                    # 充值USDT - 暂未开放
+                    await event.answer(
+                        '⚠️ USDT充值功能正在完善中\n\n'
+                        '请选择"充值积分"或"充值会员"进行充值',
+                        alert=True
+                    )
+                
+                elif command == 'back_to_start':
+                    # 返回开始菜单
+                    await event.answer()
+                    await event.delete()
                 
             except Exception as e:
                 logger.error(f"命令按钮处理失败: {e}")
@@ -1538,7 +1653,7 @@ class TelegramQueryBot:
                 return
             
             # 跳过键盘按钮消息
-            if event.text.strip() in ['🏠 开始', '👤 个人中心', '💳 购买积分', '💎 购买VIP', '🔍 关键词查询', '📞 联系客服']:
+            if event.text.strip() in ['🏠 开始', '🧘‍♀️ 个人中心', '💳 购买积分', '💎 购买VIP', '🔍 关键词查询', '📞 联系客服']:
                 return
             
             # 跳过回复消息（避免管理员回复通知时触发查询）
@@ -1551,6 +1666,10 @@ class TelegramQueryBot:
             
             # 跳过包含HTML标签的消息
             if '<' in event.text or '>' in event.text:
+                return
+            
+            # **重要：检查管理员是否正在进行其他操作（如广播、设置客服等）**
+            if self.admin_module and event.sender_id in self.admin_module.admin_state:
                 return
             
             # 验证用户名格式（基本验证）
@@ -1820,15 +1939,11 @@ class TelegramQueryBot:
         
         # 设置Bot命令提示
         from telethon.tl.functions.bots import SetBotCommandsRequest
-        from telethon.tl.types import BotCommand, BotCommandScopeDefault
+        from telethon.tl.types import BotCommand, BotCommandScopeDefault, BotCommandScopePeer
         
+        # 普通用户命令
         commands = [
-            BotCommand(command='start', description='🏠 启动机器人，查看主菜单'),
-            BotCommand(command='qd', description='🎁 每日签到，领取积分奖励'),
-            BotCommand(command='balance', description='💰 查看账户余额和统计'),
-            BotCommand(command='recharge', description='💳 充值积分'),
-            BotCommand(command='text', description='🔍 关键词搜索消息'),
-            BotCommand(command='buyvip', description='💎 购买VIP会员'),
+            BotCommand(command='start', description='开始'),
         ]
         
         try:
@@ -1841,6 +1956,25 @@ class TelegramQueryBot:
         except Exception as e:
             logger.error(f"❌ 设置Bot命令提示失败: {e}")
             logger.info("💡 建议手动通过 @BotFather 设置命令列表")
+        
+        # 为管理员设置额外的命令
+        if config.ADMIN_IDS:
+            admin_commands = commands + [
+                BotCommand(command='a', description='📋 管理员命令中心'),
+                BotCommand(command='tj', description='📊 查看数据统计'),
+            ]
+            
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await self.client(SetBotCommandsRequest(
+                        scope=BotCommandScopePeer(peer=admin_id),
+                        lang_code='zh',
+                        commands=admin_commands
+                    ))
+                except Exception as e:
+                    logger.warning(f"⚠️ 为管理员 {admin_id} 设置命令失败: {e}")
+            
+            logger.info(f"✅ 已为 {len(config.ADMIN_IDS)} 位管理员设置专属命令")
         
         # 初始化管理员模块
         if config.ADMIN_IDS:

@@ -1079,8 +1079,8 @@ class Database:
                 return False, 0, "今天已经签到过了！"
             
             # 获取签到奖励范围
-            checkin_min = int(await self.get_config('checkin_min', '1'))
-            checkin_max = int(await self.get_config('checkin_max', '5'))
+            checkin_min = int(float(await self.get_config('checkin_min', '1')))
+            checkin_max = int(float(await self.get_config('checkin_max', '5')))
             
             # 随机整数奖励
             reward = float(random.randint(checkin_min, checkin_max))

@@ -102,7 +102,7 @@ class VIPModule:
             if current_months > 1:
                 row.append(Button.inline("-10", f"vip_adj_{current_months}_-10"))
                 row.append(Button.inline("-1", f"vip_adj_{current_months}_-1"))
-            row.append(Button.inline(f"📅 {current_months} 月", b"vip_month_noop"))
+            row.append(Button.inline(f"🌟 {current_months} 月", b"vip_month_noop"))
             if current_months < 99:
                 row.append(Button.inline("+1", f"vip_adj_{current_months}_+1"))
                 row.append(Button.inline("+10", f"vip_adj_{current_months}_+10"))
