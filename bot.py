@@ -694,6 +694,9 @@ class TelegramQueryBot:
                     ],
                     [
                         Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
+                    ],
+                    [
+                        Button.inline('🔽 隐藏菜单', 'cmd_hide_keyboard')
                     ]
                 ]
                 
@@ -1178,6 +1181,15 @@ class TelegramQueryBot:
                         '⚠️ USDT充值功能正在完善中\n\n'
                         '请选择"充值积分"或"充值会员"进行充值',
                         alert=True
+                    )
+                
+                elif command == 'hide_keyboard':
+                    # 隐藏底部键盘按钮
+                    await event.answer('✅ 菜单已隐藏')
+                    await event.respond(
+                        '✅ 底部菜单已隐藏\n\n'
+                        '💡 需要时可以随时发送 /start 重新显示菜单',
+                        buttons=Button.clear()
                     )
                 
                 elif command == 'back_to_start':
