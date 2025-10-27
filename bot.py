@@ -312,8 +312,8 @@ class TelegramQueryBot:
             row.append(Button.inline('下一页 🔒', f'noop'))
         
         buttons.append(row)
-        # 第三行：返回个人中心
-        buttons.append([Button.inline('« 返回个人中心', 'cmd_balance')])
+        # 第三行：返回主菜单
+        buttons.append([Button.inline('« 返回主菜单', 'cmd_back_to_start')])
         
         return result, buttons
     
@@ -613,8 +613,8 @@ class TelegramQueryBot:
         
         buttons.append(row2)
         
-        # 第三行：返回个人中心
-        buttons.append([Button.inline('« 返回个人中心', 'cmd_balance')])
+        # 第三行：返回主菜单
+        buttons.append([Button.inline('« 返回主菜单', 'cmd_back_to_start')])
         
         return result, buttons
     
@@ -994,9 +994,14 @@ class TelegramQueryBot:
                     # 隐藏底部键盘按钮，显示主菜单
                     await event.answer('✅ 快捷菜单已隐藏')
                     
-                    # 构建主菜单
-                    message, buttons = await self._build_main_menu(event.sender_id)
+                    # 先清除底部键盘
+                    await event.respond(
+                        '✅ 快捷菜单已隐藏',
+                        buttons=Button.clear()
+                    )
                     
+                    # 再显示主菜单
+                    message, buttons = await self._build_main_menu(event.sender_id)
                     await event.respond(
                         message,
                         buttons=buttons,
@@ -1012,48 +1017,70 @@ class TelegramQueryBot:
                     user_id = event.sender_id
                     user_info = self._format_user_log(sender)
                     
-                    # 从数据库查询自己的信息（免费）
+                    # 免费查询自己的信息（优先用数据库，速度快）
                     try:
-                        query_result = await self.db.get_user_data(str(user_id))
+                        result = None
+                        from_db = False
                         
-                        if not query_result or not query_result.get('success'):
+                        # 1. 先查数据库，如果有就直接用（速度快）
+                        db_result = await self.db.get_user_data(str(user_id))
+                        if db_result and db_result.get('success'):
+                            result = db_result
+                            from_db = True
+                            logger.info(f"用户 {user_info} 查询自己，使用数据库缓存（快速）")
+                        
+                        # 2. 数据库没有，用用户ID调用API查询
+                        if not result:
+                            api_result = await self._query_api(str(user_id))
+                            if api_result and api_result.get('success'):
+                                result = api_result
+                                from_db = False
+                                # 保存到数据库
+                                try:
+                                    await self.db.save_user_data(result)
+                                    logger.info(f"用户 {user_info} 查询自己，从API获取并保存到数据库")
+                                except Exception as e:
+                                    logger.error(f"保存到数据库失败: {e}")
+                        
+                        # 3. 显示结果
+                        if result and result.get('success'):
+                            # 获取VIP状态（用于控制关联用户按钮显示）
+                            vip_info = await self.db.get_user_vip_info(user_id)
+                            is_vip = vip_info['is_vip']
+                            
+                            # 格式化并显示结果（不收费）
+                            formatted, buttons = self._format_user_info(result, view='groups', page=1, is_vip=is_vip)
+                            
+                            if formatted and buttons:
+                                # 缓存查询结果
+                                cache_key = f"user_{user_id}"
+                                self.query_cache[cache_key] = result
+                                
+                                data_source = "💾 本地数据库" if from_db else "🔄 API最新"
+                                await event.respond(
+                                    formatted,
+                                    buttons=buttons,
+                                    parse_mode='html',
+                                    link_preview=False
+                                )
+                                
+                                logger.info(f"用户 {user_info} 免费查询了自己的信息 ({data_source})")
+                            else:
+                                await event.respond(
+                                    '❌ 数据解析失败\n\n'
+                                    '请稍后再试',
+                                    parse_mode='html'
+                                )
+                        else:
                             await event.respond(
                                 '❌ 未找到您的信息\n\n'
                                 '可能原因：\n'
-                                '• 您的账号较新，尚未被索引到数据库\n'
-                                '• 数据库中暂无相关记录\n\n'
-                                '💡 您可以先让其他用户查询您的用户名，这样您的信息就会被记录到数据库中',
+                                '• 您的账号较新，尚未被索引\n'
+                                '• API查询失败\n\n'
+                                '💡 请稍后再试',
                                 parse_mode='html'
                             )
-                            logger.info(f"用户 {user_info} 尝试查询自己，但数据库中没有记录")
-                            return
-                        
-                        # 获取VIP状态（用于控制关联用户按钮显示）
-                        vip_info = await self.db.get_user_vip_info(user_id)
-                        is_vip = vip_info['is_vip']
-                        
-                        # 格式化并显示结果（不收费）
-                        formatted, buttons = self._format_user_info(query_result, view='groups', page=1, is_vip=is_vip)
-                        
-                        if formatted and buttons:
-                            # 缓存查询结果
-                            cache_key = f"user_{user_id}"
-                            self.query_cache[cache_key] = query_result
-                            
-                            await event.respond(
-                                formatted,
-                                buttons=buttons,
-                                parse_mode='html',
-                                link_preview=False
-                            )
-                            
-                            logger.info(f"用户 {user_info} 免费查询了自己的信息")
-                        else:
-                            await event.respond(
-                                '❌ 数据解析失败\n\n'
-                                '请稍后再试',
-                                parse_mode='html'
-                            )
+                            logger.info(f"用户 {user_info} 查询自己失败（数据库和API都没有数据）")
                         
                     except Exception as e:
                         logger.error(f"查询自己失败: {e}", exc_info=True)
@@ -1158,15 +1185,12 @@ class TelegramQueryBot:
                 user_info = self._format_user_log(sender)
                 logger.info(f"用户 {user_info} 取消了操作")
                 
-                # 如果是管理员，直接显示管理面板
-                if is_admin and self.admin_module:
-                    await self.admin_module.show_admin_panel(event)
-                else:
-                    await event.respond(
-                        '✅ 已取消当前操作\n\n'
-                        '您可以继续使用其他功能',
-                        parse_mode='html'
-                    )
+                # 管理员和普通用户都显示相同的取消消息
+                await event.respond(
+                    '✅ 已取消当前操作\n\n'
+                    '您可以继续使用其他功能',
+                    parse_mode='html'
+                )
             else:
                 await event.respond(
                     'ℹ️ 当前没有进行中的操作',
@@ -1209,9 +1233,14 @@ class TelegramQueryBot:
         @self.client.on(events.NewMessage(pattern=r'^关闭快捷查询$'))
         async def hide_keyboard_button_handler(event):
             """处理关闭快捷查询按钮"""
-            # 构建主菜单
-            message, buttons = await self._build_main_menu(event.sender_id)
+            # 先清除底部键盘
+            await event.respond(
+                '✅ 快捷菜单已隐藏',
+                buttons=Button.clear()
+            )
             
+            # 再显示主菜单
+            message, buttons = await self._build_main_menu(event.sender_id)
             await event.respond(
                 message,
                 buttons=buttons,

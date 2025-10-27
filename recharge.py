@@ -640,7 +640,7 @@ class RechargeModule:
                 buttons = [
                     [Button.inline('💳 积分充值', 'recharge_points_menu')],
                     [Button.inline('💎 VIP开通', 'vip_menu')],
-                    [Button.inline('« 返回个人中心', 'cmd_balance')]
+                    [Button.inline('« 返回主菜单', 'cmd_back_to_start')]
                 ]
                 
                 # 获取最小充值金额
@@ -981,7 +981,7 @@ class RechargeModule:
         
         buttons = [
             [Button.inline('取消订单', f"cancel_order_{order['order_id']}")],
-            [Button.inline('« 返回个人中心', 'cmd_balance')]
+            [Button.inline('« 返回主菜单', 'cmd_back_to_start')]
         ]
         
         await event.respond(
