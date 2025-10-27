@@ -74,6 +74,40 @@ class AdminModule:
             logger.error(f"格式化管理员信息失败: {e}")
             return f"管理员 (ID:{event.sender_id})"
     
+    async def show_admin_panel(self, event):
+        """显示管理员面板"""
+        if not self.is_admin(event.sender_id):
+            return
+        
+        help_text = (
+            '👨‍💼 <b>管理员控制面板</b>\n\n'
+            '📋 <b>快捷命令</b>\n'
+            '• <code>/tj</code> - 查看统计信息\n'
+            '• <code>/yue</code> - 余额管理\n'
+            '• <code>/notify</code> - 广播用户\n'
+            '• <code>/a</code> - 查看完整帮助\n\n'
+            '请选择要查看的功能分类：'
+        )
+        buttons = [
+            [
+                Button.inline('💫 统计信息', 'help_stats'),
+                Button.inline('☘️ 用户余额', 'help_balance'),
+            ],
+            [
+                Button.inline('✏️ 系统配置', 'help_config'),
+                Button.inline('✨ 白名单', 'help_hidden'),
+            ],
+            [
+                Button.inline('💎 VIP管理', 'help_vip'),
+                Button.inline('👨‍💼 客服管理', 'help_service'),
+            ],
+            [
+                Button.inline('🎯 广播用户', 'help_notify'),
+            ]
+        ]
+        
+        await event.respond(help_text, buttons=buttons, parse_mode='html')
+    
     def register_handlers(self):
         """注册管理员事件处理器"""
         
@@ -110,21 +144,31 @@ class AdminModule:
                 f'<b>总查询次数：</b><code>{total_queries}</code>\n\n'
                 '请选择要查看的功能分类：'
             )
+            
+            # 获取Web管理面板端口和地址
+            import os
+            web_port = int(os.getenv('WEB_ADMIN_PORT', '5000'))
+            web_host = os.getenv('WEB_ADMIN_HOST', '37.114.49.169')
+            web_url = f'http://{web_host}:{web_port}'
+            
             buttons = [
                 [
-                    Button.inline('💫 统计信息', 'help_stats'),
-                    Button.inline('💰 余额管理', 'help_balance'),
+                    Button.url('🌐 Web管理面板', web_url),
                 ],
                 [
-                    Button.inline('⚙️ 系统配置', 'help_config'),
-                    Button.inline('☘️ 白名单', 'help_hidden'),
+                    Button.inline('💫 统计信息', 'help_stats'),
+                    Button.inline('☘️ 用户余额', 'help_balance'),
+                ],
+                [
+                    Button.inline('✏️ 系统配置', 'help_config'),
+                    Button.inline('✨ 白名单', 'help_hidden'),
                 ],
                 [
                     Button.inline('💎 VIP管理', 'help_vip'),
                     Button.inline('👨‍💼 客服管理', 'help_service'),
                 ],
                 [
-                    Button.inline('📢 通知功能', 'help_notify'),
+                    Button.inline('🎯 广播用户', 'help_notify'),
                 ]
             ]
             return help_text, buttons
@@ -165,6 +209,25 @@ class AdminModule:
                     await start_broadcast(event, is_callback=True)
                     return
                 
+                # 余额管理按钮直接进入余额管理模式
+                if data == 'help_balance':
+                    await event.answer()
+                    # 设置管理员状态
+                    self.admin_state[event.sender_id] = {'action': 'balance_query'}
+                    
+                    await event.respond(
+                        '☘️ <b>余额管理模式</b>\n\n'
+                        '请发送要查询的用户名或用户ID\n\n'
+                        '<b>示例：</b>\n'
+                        '• <code>username</code>\n'
+                        '• <code>@username</code>\n'
+                        '• <code>123456789</code>\n\n'
+                        '<i>取消请发送 /cancel</i>',
+                        parse_mode='html'
+                    )
+                    logger.info(f"管理员 {event.sender_id} 通过按钮进入余额管理模式")
+                    return
+                
                 category = data.replace('help_', '')
                 
                 # 根据分类返回不同的帮助内容
@@ -178,24 +241,8 @@ class AdminModule:
                         '<b>示例：</b>\n'
                         '<code>/tj</code> - 查看今日统计'
                     ),
-                    'balance': (
-                        '💰 <b>余额管理功能</b>\n\n'
-                        '<b>/add &lt;用户ID&gt; &lt;金额&gt;</b>\n'
-                        '• 增加指定用户的余额\n'
-                        '• 示例: <code>/add 123456789 10</code>\n\n'
-                        '<b>/deduct &lt;用户ID&gt; &lt;金额&gt;</b>\n'
-                        '• 扣除指定用户的余额\n'
-                        '• 会检查余额是否足够\n'
-                        '• 示例: <code>/deduct 123456789 5</code>\n\n'
-                        '<b>/set &lt;用户ID&gt; &lt;金额&gt;</b>\n'
-                        '• 直接设置用户余额\n'
-                        '• 示例: <code>/set 123456789 100</code>\n\n'
-                        '<b>/checkbalance &lt;用户ID&gt;</b>\n'
-                        '• 查询用户余额和签到信息\n'
-                        '• 示例: <code>/checkbalance 123456789</code>'
-                    ),
                     'config': (
-                        '⚙️ <b>系统配置功能</b>\n\n'
+                        '✏️ <b>系统配置功能</b>\n\n'
                         '<b>签到配置：</b>\n'
                         '• <code>/setrange 最小值 最大值</code>\n'
                         '  设置签到奖励范围\n'
@@ -230,7 +277,7 @@ class AdminModule:
                         '💡 所有配置立即生效'
                     ),
                     'hidden': (
-                        '☘️ <b>白名单管理</b>\n\n'
+                        '✨ <b>白名单管理</b>\n\n'
                         '<b>/hide &lt;用户名/ID&gt; [原因]</b>\n'
                         '• 隐藏指定用户的数据\n'
                         '• 用户查询时显示"已隐藏"\n'
@@ -265,7 +312,8 @@ class AdminModule:
                         '  设置VIP每日关键词查询次数\n'
                         '  示例: /setviptextquery 50\n\n'
                         '💱 <b>汇率配置已统一</b>\n'
-                        '• 请前往“⚙️ 系统配置功能 → 汇率配置”使用 <code>/setrate</code>、<code>/rates</code>、<code>/toggleapi</code>\n\n'
+                        '• 请前往 ✏️ 系统配置功能查看汇率配置命令\n'
+                        '• 使用 <code>/setrate</code>、<code>/rates</code>、<code>/toggleapi</code>\n\n'
                         '💎 <b>VIP专属权益：</b>\n'
                         '• 每日免费用户查询\n'
                         '• 每日免费关键词查询\n'
@@ -292,8 +340,8 @@ class AdminModule:
                         '• "开始对话"按钮（直达客服私聊）'
                     ),
                     'notify': (
-                        '📢 <b>通知功能</b>\n\n'
-                        '<b>/tz</b> - 发送系统通知\n\n'
+                        '🎯 <b>广播用户</b>\n\n'
+                        '<b>/notify 或 /tz</b> - 发送系统通知\n\n'
                         '<b>使用步骤：</b>\n'
                         '1. 发送命令 <code>/tz</code>\n'
                         '2. Bot回复提示消息\n'
@@ -341,6 +389,46 @@ class AdminModule:
             await event.answer()
             await event.edit(help_text, buttons=buttons, parse_mode='html')
         
+        @self.client.on(events.CallbackQuery(pattern=r'^balance_(add|deduct|set)_(\d+)$'))
+        async def balance_action_callback_handler(event):
+            """处理余额操作按钮"""
+            if not self.is_admin(event.sender_id):
+                await event.answer('❌ 权限不足', alert=True)
+                return
+            
+            try:
+                data = event.data.decode('utf-8')
+                parts = data.split('_')
+                action = parts[1]  # add, deduct, set
+                user_id = int(parts[2])
+                
+                # 设置管理员状态
+                self.admin_state[event.sender_id] = {
+                    'action': f'balance_{action}_amount',
+                    'user_id': user_id
+                }
+                
+                action_text = {
+                    'add': '添加',
+                    'deduct': '减少',
+                    'set': '修改'
+                }
+                
+                await event.answer()
+                await event.respond(
+                    f'☘️ <b>{action_text[action]}余额</b>\n\n'
+                    f'用户ID: <code>{user_id}</code>\n\n'
+                    f'请输入要{action_text[action]}的金额：\n\n'
+                    '<i>取消请发送 /cancel</i>',
+                    parse_mode='html'
+                )
+                
+                logger.info(f"管理员 {event.sender_id} 选择{action_text[action]}用户 {user_id} 的余额")
+                
+            except Exception as e:
+                logger.error(f"余额操作回调失败: {e}")
+                await event.answer('❌ 处理失败', alert=True)
+        
         async def start_broadcast(event_or_callback, is_callback=False):
             """启动广播通知的通用函数（复用）"""
             try:
@@ -361,7 +449,8 @@ class AdminModule:
                 
                 if is_callback:
                     await event_or_callback.answer()
-                    await event_or_callback.edit(message, buttons=buttons, parse_mode='html')
+                    # 发送新消息，而不是编辑当前消息
+                    await event_or_callback.respond(message, buttons=buttons, parse_mode='html')
                 else:
                     await event_or_callback.respond(message, buttons=buttons, parse_mode='html')
                 
@@ -478,9 +567,31 @@ class AdminModule:
                 logger.error(f"统计回调处理失败: {e}")
                 await event.answer('❌ 处理失败', alert=True)
         
+        @self.client.on(events.NewMessage(pattern=r'^/(balance|yue)$'))
+        async def balance_manage_handler(event):
+            """进入余额管理模式"""
+            if not self.is_admin(event.sender_id):
+                await event.respond('❌ 此命令仅限管理员使用')
+                return
+            
+            # 设置管理员状态
+            self.admin_state[event.sender_id] = {'action': 'balance_query'}
+            
+            await event.respond(
+                '☘️ <b>余额管理模式</b>\n\n'
+                '请发送要查询的用户名或用户ID\n\n'
+                '<b>示例：</b>\n'
+                '• <code>username</code>\n'
+                '• <code>@username</code>\n'
+                '• <code>123456789</code>\n\n'
+                '<i>取消请发送 /cancel</i>',
+                parse_mode='html'
+            )
+            logger.info(f"管理员 {event.sender_id} 进入余额管理模式")
+        
         @self.client.on(events.NewMessage(pattern=r'/add\s+(\d+)\s+([\d.]+)'))
         async def add_balance_handler(event):
-            """处理增加余额命令"""
+            """处理增加余额命令（旧方式，保留兼容）"""
             if not self.is_admin(event.sender_id):
                 await event.respond('❌ 此命令仅限管理员使用')
                 return
@@ -606,19 +717,21 @@ class AdminModule:
                 # 获取当前余额
                 old_balance = await self.db.get_balance(target_user_id)
                 
-                # 设置余额
+                # 设置余额（计算差值）
+                diff = amount - old_balance
                 success = await self.db.change_balance(
-                    target_user_id, amount, 'admin_set',
+                    target_user_id, diff, 'admin_set',
                     f'管理员设置余额为 {amount} 积分',
                     event.sender_id
                 )
                 
                 if success:
+                    new_balance = await self.db.get_balance(target_user_id)
                     await event.respond(
                         f'✅ <b>余额设置成功</b>\n\n'
                         f'用户ID: <code>{target_user_id}</code>\n'
                         f'原余额: <code>{old_balance:.2f} 积分</code>\n'
-                        f'新余额: <code>{amount:.2f} 积分</code>',
+                        f'新余额: <code>{new_balance:.2f} 积分</code>',
                         parse_mode='html'
                     )
                     admin_info = await self._format_admin_log(event)
@@ -897,7 +1010,7 @@ class AdminModule:
                     return
                 
                 # 设置配置
-                await self.db.set_config('vip_daily_user_query', str(quota), 'VIP每日用户查询次数')
+                await self.db.set_config('vip_monthly_query_limit', str(quota), 'VIP每月查询次数')
                 
                 await event.respond(
                     f'✅ <b>VIP每日用户查询次数设置成功</b>\n\n'
@@ -933,7 +1046,8 @@ class AdminModule:
                     return
                 
                 # 设置配置
-                await self.db.set_config('vip_daily_text_query', str(quota), 'VIP每日关键词查询次数')
+                # 已合并到VIP每月查询次数，此配置已废弃
+                pass
                 
                 await event.respond(
                     f'✅ <b>VIP每日关键词查询次数设置成功</b>\n\n'
@@ -1584,8 +1698,184 @@ class AdminModule:
             
             state = self.admin_state.get(event.sender_id)
             
+            # 处理余额管理 - 查询用户
+            if isinstance(state, dict) and state.get('action') == 'balance_query':
+                # 检查是否为命令（跳过命令）
+                if event.text and event.text.startswith('/'):
+                    return
+                
+                # 获取用户输入
+                user_input = event.text.strip()
+                
+                # 解析用户名或ID
+                user_identifier = user_input.replace('@', '').replace('https://t.me/', '').replace('http://t.me/', '').replace('t.me/', '')
+                
+                try:
+                    user_id = None
+                    balance = None
+                    user_display = None
+                    
+                    # 尝试获取用户余额
+                    if user_identifier.isdigit():
+                        # 是用户ID
+                        user_id = int(user_identifier)
+                        balance = await self.db.get_balance(user_id)
+                        
+                        # 获取用户信息（如果有的话）
+                        try:
+                            user_entity = await self.client.get_entity(user_id)
+                            user_name = getattr(user_entity, 'first_name', '') or ''
+                            username = getattr(user_entity, 'username', None)
+                            user_display = f"{user_name} (@{username})" if username else user_name
+                        except:
+                            user_display = f"ID: {user_id}"
+                    else:
+                        # 是用户名
+                        user_entity = await self.client.get_entity(user_identifier)
+                        user_id = user_entity.id
+                        balance = await self.db.get_balance(user_id)
+                        user_name = getattr(user_entity, 'first_name', '') or ''
+                        username = getattr(user_entity, 'username', None)
+                        user_display = f"{user_name} (@{username})" if username else user_name
+                    
+                    # 获取签到信息
+                    checkin_info = await self.db.get_checkin_info(user_id)
+                    invite_stats = await self.db.get_invitation_stats(user_id)
+                    
+                    balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
+                    
+                    # 清除当前状态
+                    self.admin_state.pop(event.sender_id, None)
+                    
+                    # 显示用户信息和操作按钮
+                    await event.respond(
+                        f'👤 <b>用户信息</b>\n\n'
+                        f'用户: {user_display}\n'
+                        f'ID: <code>{user_id}</code>\n\n'
+                        f'💰 <b>余额信息</b>\n'
+                        f'当前余额: <code>{balance_str} 积分</code>\n\n'
+                        f'📊 <b>统计信息</b>\n'
+                        f'累计签到: {checkin_info.get("total_days", 0)} 天\n'
+                        f'签到奖励: {checkin_info.get("total_rewards", 0):.0f} 积分\n'
+                        f'邀请人数: {invite_stats.get("total_invites", 0)} 人\n'
+                        f'邀请奖励: {invite_stats.get("total_rewards", 0):.0f} 积分\n\n'
+                        f'请选择操作：',
+                        buttons=[
+                            [
+                                Button.inline('➕ 添加', f'balance_add_{user_id}'),
+                                Button.inline('➖ 减少', f'balance_deduct_{user_id}'),
+                                Button.inline('✏️ 修改', f'balance_set_{user_id}')
+                            ]
+                        ],
+                        parse_mode='html'
+                    )
+                    
+                    logger.info(f"管理员 {event.sender_id} 查询了用户 {user_id} 的余额: {balance}")
+                    
+                except Exception as e:
+                    logger.error(f"查询用户余额失败: {e}")
+                    await event.respond(
+                        f'❌ 无法找到用户\n\n'
+                        f'输入: <code>{user_identifier}</code>\n\n'
+                        f'请确认用户名或ID正确',
+                        parse_mode='html'
+                    )
+                
+                # 阻止事件继续传播
+                raise events.StopPropagation()
+            
+            # 处理余额操作 - 等待金额输入
+            elif isinstance(state, dict) and state.get('action') in ['balance_add_amount', 'balance_deduct_amount', 'balance_set_amount']:
+                # 检查是否为命令（跳过命令）
+                if event.text and event.text.startswith('/'):
+                    return
+                
+                try:
+                    amount = float(event.text.strip())
+                    
+                    if amount <= 0 and state['action'] != 'balance_set_amount':
+                        await event.respond('❌ 金额必须大于0')
+                        raise events.StopPropagation()
+                    
+                    if amount < 0 and state['action'] == 'balance_set_amount':
+                        await event.respond('❌ 金额不能为负数')
+                        raise events.StopPropagation()
+                    
+                    target_user_id = state['user_id']
+                    action_type = state['action']
+                    
+                    # 获取当前余额
+                    old_balance = await self.db.get_balance(target_user_id)
+                    
+                    # 执行操作
+                    success = False
+                    operation_desc = ""
+                    
+                    if action_type == 'balance_add_amount':
+                        # 添加余额
+                        success = await self.db.change_balance(
+                            target_user_id, amount, 'admin_add',
+                            f'管理员增加 {amount} 积分',
+                            event.sender_id
+                        )
+                        operation_desc = "添加"
+                    elif action_type == 'balance_deduct_amount':
+                        # 减少余额
+                        if old_balance < amount:
+                            await event.respond(
+                                f'❌ <b>余额不足</b>\n\n'
+                                f'当前余额: <code>{old_balance:.2f} 积分</code>\n'
+                                f'尝试扣除: <code>{amount:.2f} 积分</code>',
+                                parse_mode='html'
+                            )
+                            self.admin_state.pop(event.sender_id, None)
+                            raise events.StopPropagation()
+                        
+                        success = await self.db.change_balance(
+                            target_user_id, -amount, 'admin_deduct',
+                            f'管理员扣除 {amount} 积分',
+                            event.sender_id
+                        )
+                        operation_desc = "减少"
+                    elif action_type == 'balance_set_amount':
+                        # 设置余额（计算差值）
+                        diff = amount - old_balance
+                        success = await self.db.change_balance(
+                            target_user_id, diff, 'admin_set',
+                            f'管理员设置余额为 {amount} 积分',
+                            event.sender_id
+                        )
+                        operation_desc = "修改"
+                    
+                    # 清除状态
+                    self.admin_state.pop(event.sender_id, None)
+                    
+                    if success:
+                        new_balance = await self.db.get_balance(target_user_id)
+                        await event.respond(
+                            f'✅ <b>余额{operation_desc}成功</b>\n\n'
+                            f'用户ID: <code>{target_user_id}</code>\n'
+                            f'原余额: <code>{old_balance:.2f} 积分</code>\n'
+                            f'新余额: <code>{new_balance:.2f} 积分</code>',
+                            parse_mode='html'
+                        )
+                        logger.info(f"管理员 {event.sender_id} {operation_desc}了用户 {target_user_id} 的余额: {old_balance} -> {new_balance}")
+                    else:
+                        await event.respond('❌ 操作失败，请稍后重试')
+                    
+                    raise events.StopPropagation()
+                    
+                except ValueError:
+                    await event.respond('❌ 请输入有效的数字金额')
+                    raise events.StopPropagation()
+                except Exception as e:
+                    logger.error(f"余额操作失败: {e}")
+                    await event.respond('❌ 操作失败')
+                    self.admin_state.pop(event.sender_id, None)
+                    raise events.StopPropagation()
+            
             # 处理广播消息
-            if state == 'broadcasting':
+            elif state == 'broadcasting':
                 # 检查是否为命令（跳过命令）
                 if event.text and event.text.startswith('/'):
                     return

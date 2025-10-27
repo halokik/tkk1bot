@@ -20,40 +20,47 @@ class VIPModule:
         self.db = db
         self.pending_vip_purchase = {}  # 存储VIP购买状态
         
-    async def show_vip_purchase_menu(self, event, is_edit=True):
-        """显示VIP购买菜单"""
+    async def show_vip_purchase_menu(self, event, is_edit=True, selected_months=3):
+        """显示VIP购买菜单（一页式）"""
         try:
             # 获取VIP价格配置
             vip_price = float(await self.db.get_config('vip_monthly_price', '200'))
-            approx_usdt = await exchange_manager.points_to_usdt(vip_price)
-            approx_trx = await exchange_manager.points_to_trx(vip_price)
-            user_quota = int(await self.db.get_config('vip_daily_user_query', '50'))
-            text_quota = int(await self.db.get_config('vip_daily_text_query', '50'))
+            monthly_quota = int(await self.db.get_config('vip_monthly_query_limit', '3999'))
+            
+            # 计算选中月份的价格
+            total_points = vip_price * selected_months
+            total_usdt = await exchange_manager.points_to_usdt(total_points)
+            total_trx = await exchange_manager.points_to_trx(total_points)
             
             text = (
                 f"💎 <b>VIP会员开通</b>\n\n"
-                f"🎁 <b>VIP专属权益：</b>\n"
-                f"• 每日用户查询 {user_quota} 次（免积分）\n"
-                f"• 每日关键词查询 {text_quota} 次（免积分）\n"
+                f"• 每月 {monthly_quota} 次查询（免积分）\n"
                 f"• 解锁关联用户数据查看功能\n"
                 f"• 超出免费次数后仍可使用积分查询\n\n"
-                f"💵 <b>约合：</b>{approx_usdt:.2f} USDT / {approx_trx:.2f} TRX 每月\n\n"
-                f"⏱ <b>有效期：</b>叠加计算，最多购买99个月\n\n"
+                f"<b>{total_usdt:.2f} USDT / {total_trx:.2f} TRX</b>\n"
+                f"（一次支付，安全可靠）\n\n"
                 f"👇 请选择购买时长："
             )
             
+            # 月份选择按钮（带对钩标记）
             buttons = [
                 [
-                    Button.inline("1 个月", b"vip_month_1"),
-                    Button.inline("3 个月", b"vip_month_3"),
-                    Button.inline("6 个月", b"vip_month_6")
+                    Button.inline(f"{'☑️ ' if selected_months == 1 else '◻️ '}1 个月", b"vip_select_1"),
+                    Button.inline(f"{'☑️ ' if selected_months == 3 else '◻️ '}3 个月", b"vip_select_3"),
+                    Button.inline(f"{'☑️ ' if selected_months == 6 else '◻️ '}6 个月", b"vip_select_6")
                 ],
                 [
-                    Button.inline("12 个月", b"vip_month_12"),
-                    Button.inline("自定义", b"vip_month_custom")
+                    Button.inline(f"{'☑️ ' if selected_months == 12 else '◻️ '}12 个月", b"vip_select_12"),
                 ],
-                [Button.inline("« 返回个人中心", b"cmd_balance")]
             ]
+            
+            # 支付方式选择
+            buttons.append([
+                Button.inline("💎 USDT支付", f"vip_pay_{selected_months}_usdt"),
+                Button.inline("💵 TRX支付", f"vip_pay_{selected_months}_trx")
+            ])
+            
+            buttons.append([Button.inline("« 返回主菜单", b"cmd_back_to_start")])
             
             if is_edit:
                 await event.edit(text, buttons=buttons, parse_mode='html')
@@ -110,8 +117,8 @@ class VIPModule:
             
             # 支付方式选择
             buttons.append([
-                Button.inline("💵 USDT支付", f"vip_pay_{current_months}_usdt"),
-                Button.inline("💎 TRX支付", f"vip_pay_{current_months}_trx")
+                Button.inline("💎 USDT支付", f"vip_pay_{current_months}_usdt"),
+                Button.inline("💵 TRX支付", f"vip_pay_{current_months}_trx")
             ])
             
             buttons.append([Button.inline("« 返回", b"vip_menu")])
@@ -167,11 +174,11 @@ class VIPModule:
     
     async def check_and_use_daily_quota(self, user_id: int, query_type: str) -> Dict[str, Any]:
         """
-        检查并使用每日配额
+        检查并使用月度配额（保留方法名兼容性）
         
         Args:
             user_id: 用户ID
-            query_type: 查询类型 ('user' 或 'text')
+            query_type: 查询类型（已废弃，统一计数）
             
         Returns:
             {
@@ -193,24 +200,21 @@ class VIPModule:
                     'total': 0
                 }
             
-            # 获取每日配额配置
-            if query_type == 'user':
-                daily_quota = int(await self.db.get_config('vip_daily_user_query', '50'))
-            else:  # text
-                daily_quota = int(await self.db.get_config('vip_daily_text_query', '50'))
+            # 获取月度配额配置
+            monthly_quota = int(await self.db.get_config('vip_monthly_query_limit', '3999'))
             
-            # 获取今日使用情况
-            usage = await self.db.get_daily_query_usage(user_id, query_type)
+            # 获取本月使用情况
+            usage = await self.db.get_monthly_query_usage(user_id)
             used = usage['used']
             
-            if used < daily_quota:
+            if used < monthly_quota:
                 # 还有配额，使用一次
-                await self.db.increment_daily_query_usage(user_id, query_type)
+                await self.db.increment_monthly_query_usage(user_id)
                 return {
                     'is_vip': True,
                     'can_use_quota': True,
-                    'remaining': daily_quota - used - 1,
-                    'total': daily_quota
+                    'remaining': monthly_quota - used - 1,
+                    'total': monthly_quota
                 }
             else:
                 # 配额用完
@@ -218,11 +222,11 @@ class VIPModule:
                     'is_vip': True,
                     'can_use_quota': False,
                     'remaining': 0,
-                    'total': daily_quota
+                    'total': monthly_quota
                 }
                 
         except Exception as e:
-            logger.error(f"检查每日配额错误: {e}")
+            logger.error(f"检查月度配额错误: {e}")
             return {
                 'is_vip': False,
                 'can_use_quota': False,
@@ -241,22 +245,16 @@ class VIPModule:
             expire_dt = datetime.fromisoformat(vip_info['expire_time'])
             expire_str = expire_dt.strftime('%Y-%m-%d %H:%M')
             
-            # 获取今日查询使用情况
-            user_usage = await self.db.get_daily_query_usage(user_id, 'user')
-            text_usage = await self.db.get_daily_query_usage(user_id, 'text')
+            # 获取本月查询使用情况
+            usage = await self.db.get_monthly_query_usage(user_id)
+            monthly_quota = int(await self.db.get_config('vip_monthly_query_limit', '3999'))
             
-            user_quota = int(await self.db.get_config('vip_daily_user_query', '50'))
-            text_quota = int(await self.db.get_config('vip_daily_text_query', '50'))
-            
-            user_remaining = max(0, user_quota - user_usage['used'])
-            text_remaining = max(0, text_quota - text_usage['used'])
+            remaining = max(0, monthly_quota - usage['used'])
             
             return (
                 f"💎 <b>用户类型：</b>VIP会员\n"
                 f"📅 <b>到期时间：</b>{expire_str}\n"
-                f"🎯 <b>今日免费查询：</b>\n"
-                f"   • 用户查询: {user_remaining}/{user_quota} 次\n"
-                f"   • 关键词: {text_remaining}/{text_quota} 次"
+                f"🎯 <b>本月免费查询：</b>{remaining}/{monthly_quota} 次"
             )
             
         except Exception as e:
@@ -269,39 +267,23 @@ class VIPModule:
         
         try:
             if data == "vip_menu":
-                # 显示VIP菜单
-                await self.show_vip_purchase_menu(event)
+                # 显示VIP菜单（默认选择3个月）
+                await self.show_vip_purchase_menu(event, selected_months=3)
                 
-            elif data.startswith("vip_month_"):
-                # 选择月份
-                month_str = data.replace("vip_month_", "")
-                
-                if month_str == "custom":
-                    # 自定义月份
-                    await self.show_vip_month_selector(event, 1)
-                elif month_str == "noop":
-                    # 无操作
-                    await event.answer("请使用 +/- 按钮调整时长", alert=False)
-                else:
-                    # 快速选择
-                    months = int(month_str)
-                    await self.show_vip_month_selector(event, months)
-                    
-            elif data.startswith("vip_adj_"):
-                # 调整月份
-                parts = data.replace("vip_adj_", "").split("_")
-                current_months = int(parts[0])
-                adjustment = int(parts[1])
-                new_months = max(1, min(99, current_months + adjustment))
-                await self.show_vip_month_selector(event, new_months)
+            elif data.startswith("vip_select_"):
+                # 选择月份（更新菜单显示）
+                month_str = data.replace("vip_select_", "")
+                months = int(month_str)
+                await event.answer()
+                await self.show_vip_purchase_menu(event, selected_months=months)
                 
             elif data.startswith("vip_pay_"):
-                # 选择支付方式
+                # 选择支付方式，直接创建订单
                 parts = data.replace("vip_pay_", "").split("_")
                 months = int(parts[0])
                 currency = parts[1]
                 
-                # 创建订单并跳转到支付流程（统一使用汇率管理器）
+                # 创建订单并跳转到支付流程
                 await event.answer("正在创建订单...", alert=False)
                 created = await self.create_vip_order(event, months, currency)
                 if created and created.get('order_id'):
@@ -326,10 +308,8 @@ class VIPModule:
             vip_months = order['vip_months']
             expired_at = order['expired_at']
             
-            # 计算剩余时间
-            expired_time = datetime.fromisoformat(expired_at)
-            remaining = expired_time - datetime.now()
-            remaining_minutes = int(remaining.total_seconds() / 60)
+            # 固定显示30分钟
+            remaining_minutes = 30
             
             buttons = [
                 [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")],

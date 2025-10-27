@@ -43,6 +43,11 @@ env/
 # 日志
 *.log
 
+# 数据库文件（运行时生成，包含用户数据）
+*.db
+*.db-shm
+*.db-wal
+
 # 操作系统
 .DS_Store
 Thumbs.db

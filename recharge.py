@@ -525,8 +525,7 @@ class RechargeModule:
                     expire_str = expire_dt.strftime('%Y-%m-%d %H:%M')
                 
                 # 获取VIP配额配置
-                user_quota = int(await self.db.get_config('vip_daily_user_query', '50'))
-                text_quota = int(await self.db.get_config('vip_daily_text_query', '50'))
+                monthly_quota = int(await self.db.get_config('vip_monthly_query_limit', '3999'))
                 
                 # 准备VIP开通成功消息
                 success_message = (
@@ -538,8 +537,7 @@ class RechargeModule:
                     f'📅 <b>到期时间:</b> {expire_str}\n\n'
                     f'<b>交易哈希:</b>\n<code>{tx_hash}</code>\n\n'
                     f'💎 <b>VIP专属权益已激活：</b>\n'
-                    f'• 每日用户查询 {user_quota} 次（免积分）\n'
-                    f'• 每日关键词查询 {text_quota} 次（免积分）\n'
+                    f'• 每月 {monthly_quota} 次查询（免积分）\n'
                     f'• 解锁关联用户数据查看功能\n\n'
                     f'✅ 感谢您的支持！'
                 )
@@ -668,8 +666,8 @@ class RechargeModule:
                 
                 # 显示积分充值选项
                 buttons = [
-                    [Button.inline('💵 USDT充值', 'recharge_usdt')],
-                    [Button.inline('💎 TRX充值', 'recharge_trx')],
+                    [Button.inline('💎 USDT充值', 'recharge_usdt')],
+                    [Button.inline('💵 TRX充值', 'recharge_trx')],
                     [Button.inline('« 返回', 'recharge_start')]
                 ]
                 
@@ -709,8 +707,8 @@ class RechargeModule:
                 
                 # 显示充值选项
                 buttons = [
-                    [Button.inline('💵 USDT充值', 'recharge_usdt')],
-                    [Button.inline('💎 TRX充值', 'recharge_trx')]
+                    [Button.inline('💎 USDT充值', 'recharge_usdt')],
+                    [Button.inline('💵 TRX充值', 'recharge_trx')]
                 ]
                 
                 # 获取最小充值金额
@@ -978,10 +976,8 @@ class RechargeModule:
         created_at = order['created_at']
         expired_at = order['expired_at']
         
-        # 计算剩余时间
-        expired_time = datetime.fromisoformat(expired_at)
-        remaining = expired_time - datetime.now()
-        remaining_minutes = int(remaining.total_seconds() / 60)
+        # 固定显示30分钟
+        remaining_minutes = 30
         
         buttons = [
             [Button.inline('取消订单', f"cancel_order_{order['order_id']}")],
@@ -1010,10 +1006,8 @@ class RechargeModule:
         created_at = order['created_at']
         expired_at = order['expired_at']
         
-        # 计算剩余时间
-        expired_time = datetime.fromisoformat(expired_at)
-        remaining = expired_time - datetime.now()
-        remaining_minutes = int(remaining.total_seconds() / 60)
+        # 固定显示30分钟
+        remaining_minutes = 30
         
         buttons = [
             [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")],

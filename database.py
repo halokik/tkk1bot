@@ -343,16 +343,15 @@ class Database:
         await self.db.execute("""
             INSERT OR IGNORE INTO system_config (config_key, config_value, description)
             VALUES 
-                ('checkin_min', '1', '签到最小奖励'),
-                ('checkin_max', '5', '签到最大奖励'),
-                ('text_search_cost', '1', '关键词查询费用'),
-                ('query_cost', '1', '查询费用'),
-                ('invite_reward', '1', '邀请奖励'),
+                ('checkin_min', '2', '签到最小奖励'),
+                ('checkin_max', '3', '签到最大奖励'),
+                ('text_search_cost', '5', '关键词查询费用'),
+                ('query_cost', '5', '查询费用'),
+                ('invite_reward', '5', '邀请奖励'),
                 ('recharge_timeout', '1800', '充值订单超时时间(秒)'),
                 ('recharge_min_amount', '10', '最小充值金额'),
                 ('vip_monthly_price', '200', 'VIP月价格(积分)'),
-                ('vip_daily_user_query', '50', 'VIP每日用户查询次数'),
-                ('vip_daily_text_query', '50', 'VIP每日关键词查询次数'),
+                ('vip_monthly_query_limit', '3999', 'VIP每月查询次数'),
                 ('fixed_rate_usdt_points', '7.2', '固定汇率: 1 USDT = ? 积分'),
                 ('fixed_rate_trx_points', '0.75', '固定汇率: 1 TRX = ? 积分'),
                 ('points_per_usdt', '10', '积分兑换USDT汇率'),
@@ -1936,46 +1935,56 @@ class Database:
             return False
     
     async def get_daily_query_usage(self, user_id: int, query_type: str) -> Dict[str, Any]:
-        """获取用户今日查询使用情况"""
+        """获取用户今日查询使用情况（已废弃，保留兼容性）"""
+        return await self.get_monthly_query_usage(user_id)
+    
+    async def get_monthly_query_usage(self, user_id: int) -> Dict[str, Any]:
+        """获取用户本月查询使用情况（所有类型合计）"""
         try:
             from datetime import date
-            today = date.today().isoformat()
+            today = date.today()
+            month_key = today.strftime('%Y-%m')  # 格式：2025-10
             
             cursor = await self.db.execute("""
                 SELECT used_count FROM vip_query_usage
-                WHERE user_id = ? AND query_type = ? AND usage_date = ?
-            """, (user_id, query_type, today))
+                WHERE user_id = ? AND usage_date = ?
+            """, (user_id, month_key))
             row = await cursor.fetchone()
             await cursor.close()
             
             if row:
                 return {
                     'used': row[0],
-                    'date': today
+                    'month': month_key
                 }
             return {
                 'used': 0,
-                'date': today
+                'month': month_key
             }
         except Exception as e:
             logger.error(f"获取查询使用情况失败: {e}")
             return {
                 'used': 0,
-                'date': None
+                'month': None
             }
     
     async def increment_daily_query_usage(self, user_id: int, query_type: str) -> bool:
-        """增加今日查询使用次数"""
+        """增加今日查询使用次数（已废弃，保留兼容性）"""
+        return await self.increment_monthly_query_usage(user_id)
+    
+    async def increment_monthly_query_usage(self, user_id: int) -> bool:
+        """增加本月查询使用次数（所有类型合计）"""
         try:
             from datetime import date
-            today = date.today().isoformat()
+            today = date.today()
+            month_key = today.strftime('%Y-%m')  # 格式：2025-10
             
             await self.db.execute("""
                 INSERT INTO vip_query_usage (user_id, query_type, usage_date, used_count, updated_at)
-                VALUES (?, ?, ?, 1, datetime('now'))
+                VALUES (?, 'all', ?, 1, datetime('now'))
                 ON CONFLICT(user_id, query_type, usage_date) 
                 DO UPDATE SET used_count = used_count + 1, updated_at = datetime('now')
-            """, (user_id, query_type, today))
+            """, (user_id, month_key))
             
             await self.db.commit()
             return True

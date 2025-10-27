@@ -17,6 +17,7 @@ from telethon.tl.types import (
     RequestPeerTypeChat,
     RequestPeerTypeBroadcast,
     KeyboardButtonRow,
+    KeyboardButton,
     UpdateNewMessage,
     MessageService,
     MessageActionRequestedPeerSentMe
@@ -66,6 +67,9 @@ class TelegramQueryBot:
         
         # 等待关键词搜索回复的消息ID集合
         self.pending_text_search = set()
+        
+        # 用户关键词查询状态字典 {user_id: True}
+        self.user_keyword_search_state = {}
         
         # 管理员模块（延迟初始化）
         self.admin_module = None
@@ -296,14 +300,14 @@ class TelegramQueryBot:
         row = []
         
         if page > 1:
-            row.append(Button.inline('⬅️ 上一页', f'text_search_{search_text}_{page-1}'))
+            row.append(Button.inline('上一页', f'text_search_{search_text}_{page-1}'))
         else:
-            row.append(Button.inline('🔒 上一页', f'noop'))
+            row.append(Button.inline('上一页 🔒', f'noop'))
         
         row.append(Button.inline(f'{page}/{total_pages}', f'noop'))
         
         if page < total_pages:
-            row.append(Button.inline('下一页 ➡️', f'text_search_{search_text}_{page+1}'))
+            row.append(Button.inline('下一页', f'text_search_{search_text}_{page+1}'))
         else:
             row.append(Button.inline('下一页 🔒', f'noop'))
         
@@ -425,7 +429,7 @@ class TelegramQueryBot:
             end_idx = start_idx + items_per_page
             page_groups = groups[start_idx:end_idx]
             
-            result += f"\n👥 群组列表 ({groups_count}) - 第 {page}/{total_pages} 页\n\n"
+            result += f"\n群组列表 ({groups_count}) - 第 {page}/{total_pages} 页\n\n"
             
             if page_groups:
                 for i, group in enumerate(page_groups, start=start_idx + 1):
@@ -439,10 +443,10 @@ class TelegramQueryBot:
                     # 构建群组链接
                     if username_group:
                         group_link = f"https://t.me/{username_group}"
-                        result += f"  {i}. 👥 <a href='{group_link}'>{title_escaped}</a>\n"
+                        result += f"  {i}. <a href='{group_link}'>{title_escaped}</a>\n"
                     else:
                         # 私有群组显示ID
-                        result += f"  {i}. 👥 {title_escaped} (ID: <code>{chat_id}</code>)\n"
+                        result += f"  {i}. {title_escaped} (ID: <code>{chat_id}</code>)\n"
             else:
                 result += "  暂无群组记录\n"
         
@@ -596,14 +600,14 @@ class TelegramQueryBot:
         page = max(1, min(page, total_pages))
         
         if page > 1:
-            row2.append(Button.inline('⬅️ 上一页', f'view_{view}_{user_id}_{page-1}'))
+            row2.append(Button.inline('上一页', f'view_{view}_{user_id}_{page-1}'))
         else:
-            row2.append(Button.inline('🔒 上一页', f'noop'))
+            row2.append(Button.inline('上一页 🔒', f'noop'))
         
         row2.append(Button.inline(f'{page}/{total_pages}', f'noop'))
         
         if page < total_pages:
-            row2.append(Button.inline('下一页 ➡️', f'view_{view}_{user_id}_{page+1}'))
+            row2.append(Button.inline('下一页', f'view_{view}_{user_id}_{page+1}'))
         else:
             row2.append(Button.inline('下一页 🔒', f'noop'))
         
@@ -682,7 +686,7 @@ class TelegramQueryBot:
         # 创建内联按钮
         inline_buttons = [
             [
-                Button.inline('🎁 每日签到', 'cmd_checkin'),
+                Button.inline('🍉每日签到', 'cmd_checkin'),
                 Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
             ],
             [
@@ -692,24 +696,27 @@ class TelegramQueryBot:
                 Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
             ],
             [
-                Button.inline('🔍 启用快捷查询', 'cmd_query_entity_id'),
-                Button.inline('关闭快捷查询', 'cmd_hide_keyboard')
+                Button.inline('💫启用快捷查询', 'cmd_query_entity_id'),
+                Button.inline('☘️查询自己（免积分）', 'cmd_query_self')
+            ],
+            [
+                Button.inline('📙 使用教程', 'cmd_tutorial'),
+                Button.inline('💁 联系客服', 'cmd_about_author')
             ]
         ]
         
         # 主菜单消息
         message = (
-            f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
-            f'🧘‍♀️ <b>您的信息</b>\n'
-            f'• 用户ID: <code>{user_id}</code>\n'
-            f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
-            f'🎁 <b>邀请好友</b>\n'
+            f'👋 欢迎TG最全的信息查询 Bot！\n'
+            f'目前数据已覆盖 <b>5千万群组，900 亿条消息</b>\n\n'
+            f'用户ID: <code>{user_id}</code>\n'
+            f'当前余额: <code>{balance_str} 积分</code>\n\n'
+            f'直接发送用户名或ID即可查询（消耗 {cost_str} 积分）\n'
+            f'示例：<code>username</code> 或 <code>@username</code> 或 <code>123456789</code>\n'
+            f'查询结果包含 用户加入群组，群组发言\n\n'
             f'邀请好友注册可获得奖励！\n'
             f'您的专属邀请链接：\n'
             f'<code>{invite_link}</code>\n\n'
-            f'🔍 <b>查询方法</b>\n'
-            f'<i>直接发送用户名或ID即可查询（消耗 {cost_str} 积分）</i>\n'
-            f'示例：<code>username</code> 或 <code>@username</code> 或 <code>123456789</code>\n\n'
         )
         
         return message, inline_buttons
@@ -745,6 +752,10 @@ class TelegramQueryBot:
                     username_requested=True,
                     photo_requested=False
                 )
+            ]),
+            KeyboardButtonRow(buttons=[
+                KeyboardButton(text='查关键词'),
+                KeyboardButton(text='关闭快捷查询')
             ])
         ]
         return ReplyKeyboardMarkup(
@@ -851,7 +862,7 @@ class TelegramQueryBot:
                         balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
                         today_reward_str = f'{int(checkin_info["today_reward"])}' if checkin_info["today_reward"] == int(checkin_info["today_reward"]) else f'{checkin_info["today_reward"]:.2f}'
                         
-                        await event.answer('⚠️ 今天已经签到过了', alert=True)
+                        await event.answer()
                         await event.respond(
                             f'⚠️ {message}\n\n'
                             f'💰 当前余额: `{balance_str} 积分`\n'
@@ -897,28 +908,22 @@ class TelegramQueryBot:
                     example_points_str = f'{example_points:.0f}' if example_points == int(example_points) else f'{example_points:.1f}'
                     
                     message = (
-                        f'🛍 <b>价格介绍</b>\n'
-                        f'1. 积分价格为 {points_per_usdt} 积分/USDT\n'
-                        f'2. 会员价格为 {vip_usdt_str} USDT/月\n'
-                        f'3. 充值成功系统自动到账\n\n'
-                        f'⚠️ <b>注意事项：</b>\n'
-                        f'1. 因用户自己选错充值方式导致的纠纷一律不予处理\n'
-                        f'2. 充值通道为USDT TRC20\n'
-                        f'3. 转账金额必须完全对应，否则会充值失败\n'
-                        f'4. 注意部分交易所存在扣手续费问题，导致实际上链金额错误\n\n'
-                        f'━━━━━━━━━━━━━━━━━━\n\n'
-                        f'🟢    <b>充值积分：</b>{example_usdt} USDT\n'
-                        f'├─  到账积分：{example_points_str} 积分\n'
-                        f'└─  包含赠送：0 积分\n\n'
-                        f'⭐️    <b>充值会员：</b>{vip_usdt_str} USDT\n'
-                        f'├─  到账会员：30 天\n'
-                        f'└─  包含赠送：0 天\n\n'
+                        f'🛍 <b>价格说明</b>\n\n'
+                        f'💎 <b>会员套餐：</b>\n'
+                        f'・38 USDT / 月\n'
+                        f'・包含 3999 次查询\n\n'
+                        f'⭐️ <b>积分充值：</b>\n'
+                        f'・汇率：1 USDT = {points_per_usdt} 积分\n'
+                        f'・充值成功后自动到账\n\n'
+                        f'<i>充值后系统将自动到账，无需人工确认，立即生效。</i>\n\n'
                         f'💡 <b>请选择充值类型：</b>'
                     )
                     
                     buttons = [
-                        [Button.inline('🟢 充值积分', 'cmd_buy_points')],
-                        [Button.inline('⭐️ 充值会员', 'cmd_buy_vip')],
+                        [
+                            Button.inline('💎 购买会员', 'cmd_buy_vip'),
+                            Button.inline('⭐️ 充值积分', 'cmd_buy_points')
+                        ],
                         [Button.inline('🔙 返回', 'cmd_back_to_start')]
                     ]
                     
@@ -941,8 +946,8 @@ class TelegramQueryBot:
                     
                     # 显示充值选项
                     buttons = [
-                        [Button.inline('💵 USDT充值', 'recharge_usdt')],
-                        [Button.inline('💎 TRX充值', 'recharge_trx')],
+                        [Button.inline('💎 USDT充值', 'recharge_usdt')],
+                        [Button.inline('💵 TRX充值', 'recharge_trx')],
                         [Button.inline('🔙 返回', 'cmd_recharge_menu')]
                     ]
                     
@@ -986,18 +991,127 @@ class TelegramQueryBot:
                     )
                 
                 elif command == 'hide_keyboard':
-                    # 隐藏底部键盘按钮
-                    await event.answer('✅ 菜单已隐藏')
+                    # 隐藏底部键盘按钮，显示主菜单
+                    await event.answer('✅ 快捷菜单已隐藏')
+                    
+                    # 构建主菜单
+                    message, buttons = await self._build_main_menu(event.sender_id)
+                    
                     await event.respond(
-                        '✅ 底部菜单已隐藏\n\n'
-                        '💡 需要时可以随时发送 /start 重新显示菜单',
-                        buttons=Button.clear()
+                        message,
+                        buttons=buttons,
+                        parse_mode='html'
                     )
                 
-                elif command == 'back_to_start':
-                    # 返回开始菜单
+                elif command == 'query_self':
+                    # 查询自己（免费）
                     await event.answer()
-                    await event.delete()
+                    
+                    # 获取用户信息
+                    sender = await event.get_sender()
+                    user_id = event.sender_id
+                    user_info = self._format_user_log(sender)
+                    
+                    # 从数据库查询自己的信息（免费）
+                    try:
+                        query_result = await self.db.get_user_data(str(user_id))
+                        
+                        if not query_result or not query_result.get('success'):
+                            await event.respond(
+                                '❌ 未找到您的信息\n\n'
+                                '可能原因：\n'
+                                '• 您的账号较新，尚未被索引到数据库\n'
+                                '• 数据库中暂无相关记录\n\n'
+                                '💡 您可以先让其他用户查询您的用户名，这样您的信息就会被记录到数据库中',
+                                parse_mode='html'
+                            )
+                            logger.info(f"用户 {user_info} 尝试查询自己，但数据库中没有记录")
+                            return
+                        
+                        # 获取VIP状态（用于控制关联用户按钮显示）
+                        vip_info = await self.db.get_user_vip_info(user_id)
+                        is_vip = vip_info['is_vip']
+                        
+                        # 格式化并显示结果（不收费）
+                        formatted, buttons = self._format_user_info(query_result, view='groups', page=1, is_vip=is_vip)
+                        
+                        if formatted and buttons:
+                            # 缓存查询结果
+                            cache_key = f"user_{user_id}"
+                            self.query_cache[cache_key] = query_result
+                            
+                            await event.respond(
+                                formatted,
+                                buttons=buttons,
+                                parse_mode='html',
+                                link_preview=False
+                            )
+                            
+                            logger.info(f"用户 {user_info} 免费查询了自己的信息")
+                        else:
+                            await event.respond(
+                                '❌ 数据解析失败\n\n'
+                                '请稍后再试',
+                                parse_mode='html'
+                            )
+                        
+                    except Exception as e:
+                        logger.error(f"查询自己失败: {e}", exc_info=True)
+                        await event.respond(
+                            '❌ 查询失败\n\n'
+                            '系统错误，请稍后再试',
+                            parse_mode='html'
+                        )
+                
+                elif command == 'tutorial':
+                    # 显示使用教程
+                    await event.answer()
+                    
+                    # 获取配置信息
+                    checkin_min = await self.db.get_config('checkin_min', '2')
+                    checkin_max = await self.db.get_config('checkin_max', '3')
+                    invite_reward = await self.db.get_config('invite_reward', '5')
+                    query_cost = await self.db.get_config('query_cost', '5')
+                    text_search_cost = await self.db.get_config('text_search_cost', '5')
+                    
+                    # 格式化数值
+                    checkin_min = float(checkin_min)
+                    checkin_max = float(checkin_max)
+                    invite_reward = float(invite_reward)
+                    query_cost = float(query_cost)
+                    text_search_cost = float(text_search_cost)
+                    
+                    checkin_min_str = f'{int(checkin_min)}' if checkin_min == int(checkin_min) else f'{checkin_min:.1f}'
+                    checkin_max_str = f'{int(checkin_max)}' if checkin_max == int(checkin_max) else f'{checkin_max:.1f}'
+                    invite_reward_str = f'{int(invite_reward)}' if invite_reward == int(invite_reward) else f'{invite_reward:.1f}'
+                    query_cost_str = f'{int(query_cost)}' if query_cost == int(query_cost) else f'{query_cost:.1f}'
+                    text_search_cost_str = f'{int(text_search_cost)}' if text_search_cost == int(text_search_cost) else f'{text_search_cost:.1f}'
+                    
+                    tutorial_message = (
+                        '📙 <b>使用教程</b>\n\n'
+                        f'签到奖励▫️每日签到获得 {checkin_min_str}-{checkin_max_str} 积分\n'
+                        f'邀请奖励▫️邀请好友获得 {invite_reward_str} 积分\n'
+                        f'用户查询▫️每次消耗 {query_cost_str} 积分\n'
+                        f'关键词查询▫️每次消耗 {text_search_cost_str} 积分\n'
+                        f'开通VIP▫️38 U / 月\n'
+                        f'VIP特权▫️每月3999次查询'
+                    )
+                    await event.respond(tutorial_message, parse_mode='html')
+                
+                elif command == 'about_author':
+                    # 显示客服信息
+                    await event.answer()
+                    customer_service_message = (
+                        '💁 TG机器人官方客服\n'
+                        '└ 在线客服：@Winfunc'
+                    )
+                    await event.respond(customer_service_message, parse_mode='html')
+                
+                elif command == 'back_to_start':
+                    # 返回主菜单
+                    await event.answer()
+                    message, buttons = await self._build_main_menu(event.sender_id)
+                    await event.edit(message, buttons=buttons, parse_mode='html')
                 
             except Exception as e:
                 logger.error(f"命令按钮处理失败: {e}")
@@ -1005,6 +1119,109 @@ class TelegramQueryBot:
                     await event.answer('❌ 处理失败', alert=True)
                 except:
                     pass
+        
+        @self.client.on(events.NewMessage(pattern=r'^/cancel$'))
+        async def cancel_handler(event):
+            """处理取消命令"""
+            # 清除所有等待状态
+            cleared = False
+            
+            # 清除关键词查询等待状态
+            if self.pending_text_search:
+                self.pending_text_search.clear()
+                cleared = True
+            
+            # 清除用户关键词查询状态
+            if event.sender_id in self.user_keyword_search_state:
+                del self.user_keyword_search_state[event.sender_id]
+                cleared = True
+            
+            # 清除管理员状态
+            is_admin = False
+            if self.admin_module:
+                if event.sender_id in self.admin_module.admin_state:
+                    self.admin_module.admin_state.pop(event.sender_id, None)
+                    cleared = True
+                # 清除广播消息缓存
+                if event.sender_id in self.admin_module.broadcast_messages:
+                    self.admin_module.broadcast_messages.pop(event.sender_id, None)
+                    cleared = True
+                # 清除等待客服设置的消息ID
+                if self.admin_module.pending_service_set:
+                    self.admin_module.pending_service_set.clear()
+                    cleared = True
+                
+                is_admin = self.admin_module.is_admin(event.sender_id)
+            
+            if cleared:
+                sender = await event.get_sender()
+                user_info = self._format_user_log(sender)
+                logger.info(f"用户 {user_info} 取消了操作")
+                
+                # 如果是管理员，直接显示管理面板
+                if is_admin and self.admin_module:
+                    await self.admin_module.show_admin_panel(event)
+                else:
+                    await event.respond(
+                        '✅ 已取消当前操作\n\n'
+                        '您可以继续使用其他功能',
+                        parse_mode='html'
+                    )
+            else:
+                await event.respond(
+                    'ℹ️ 当前没有进行中的操作',
+                    parse_mode='html'
+                )
+        
+        @self.client.on(events.NewMessage(pattern=r'^查关键词$'))
+        async def keyword_search_button_handler(event):
+            """处理查关键词按钮"""
+            async with self.semaphore:
+                # 获取搜索费用
+                try:
+                    _cost_val = float(await self.db.get_config('text_search_cost', '1'))
+                except Exception:
+                    _cost_val = 1.0
+                _cost_str = f"{int(_cost_val)}" if float(_cost_val).is_integer() else f"{_cost_val:.2f}"
+                
+                # 设置用户进入关键词查询状态
+                self.user_keyword_search_state[event.sender_id] = True
+                
+                await event.respond(
+                    '✅ <b>已进入关键词查询状态</b>\n\n'
+                    '<b>使用方法：</b>\n'
+                    '请 <b>直接发送</b> 您要搜索的关键词\n\n'
+                    '<b>示例：</b>\n'
+                    '输入: <code>hello</code>\n\n'
+                    '💡 <b>提示：</b>\n'
+                    f'• 每次搜索消耗 <code>{_cost_str}</code> 积分\n'
+                    '• 支持搜索所有群组的历史消息\n'
+                    '• 搜索结果支持翻页查看\n\n'
+                    '<i>取消请发送 /cancel</i>',
+                    parse_mode='html'
+                )
+                
+                # 记录日志
+                sender = await event.get_sender()
+                user_info = self._format_user_log(sender)
+                logger.info(f"用户 {user_info} 进入关键词查询状态")
+        
+        @self.client.on(events.NewMessage(pattern=r'^关闭快捷查询$'))
+        async def hide_keyboard_button_handler(event):
+            """处理关闭快捷查询按钮"""
+            # 构建主菜单
+            message, buttons = await self._build_main_menu(event.sender_id)
+            
+            await event.respond(
+                message,
+                buttons=buttons,
+                parse_mode='html'
+            )
+            
+            # 记录日志
+            sender = await event.get_sender()
+            user_info = self._format_user_log(sender)
+            logger.info(f"用户 {user_info} 关闭了快捷查询键盘并返回主菜单")
         
         @self.client.on(events.NewMessage(pattern=r'^/text\s+(.+)'))
         async def text_search_handler(event):
@@ -1467,7 +1684,132 @@ class TelegramQueryBot:
                 return
             
             # 跳过键盘按钮消息
-            if event.text.strip() in ['🏠 开始', '🧘‍♀️ 个人中心', '💳 购买积分', '💎 购买VIP', '🔍 关键词查询', '📞 联系客服']:
+            if event.text.strip() in ['🏠 开始', '🧘‍♀️ 个人中心', '💳 购买积分', '💎 购买VIP', '🔍 关键词查询', '📞 联系客服', '查关键词', '关闭快捷查询', '查用户', '查群组', '查频道']:
+                return
+            
+            # **检查用户是否在关键词查询状态**
+            if event.sender_id in self.user_keyword_search_state:
+                # 清除状态
+                del self.user_keyword_search_state[event.sender_id]
+                
+                # 提取搜索关键词
+                search_text = event.text.strip()
+                
+                if not search_text:
+                    await event.respond('❌ 请输入搜索关键词')
+                    return
+                
+                # 触发关键词搜索（复用 /text 命令的逻辑）
+                async with self.semaphore:
+                    # 检查VIP配额或余额
+                    vip_quota = await self.vip_module.check_and_use_daily_quota(event.sender_id, 'text')
+                    search_cost = float(await self.db.get_config('text_search_cost', '1'))
+                    current_balance = await self.db.get_balance(event.sender_id)
+                    
+                    use_vip_quota = vip_quota['can_use_quota']
+                    
+                    # 如果不能使用VIP配额，检查积分余额
+                    if not use_vip_quota and current_balance < search_cost:
+                        vip_msg = ""
+                        if vip_quota['is_vip']:
+                            vip_msg = f"💎 VIP免费查询已用完 ({vip_quota['total']} 次/天)\n\n"
+                        
+                        await event.respond(
+                            f'❌ 余额不足\n\n'
+                            f'{vip_msg}'
+                            f'💰 当前余额: `{current_balance:.2f} 积分`\n'
+                            f'💳 需要: `{search_cost:.2f} 积分`\n\n'
+                            f'📝 请使用 /qd 签到获取积分，或开通VIP享受每日免费查询',
+                            parse_mode='markdown'
+                        )
+                        return
+                    
+                    # 发送处理中消息
+                    processing_msg = await event.respond(f'🔍 正在搜索: `{search_text}`...', parse_mode='markdown')
+                    
+                    # 调用API获取总数
+                    api_result = await self._search_text_api(search_text)
+                    
+                    if not api_result or not api_result.get('success'):
+                        await processing_msg.edit(
+                            '❌ 搜索失败\n\n'
+                            '可能的原因：\n'
+                            '• API服务异常\n'
+                            '• 搜索超时\n\n'
+                            '💰 余额未扣除\n\n'
+                            '请稍后重试',
+                            parse_mode='html'
+                        )
+                        sender = await event.get_sender()
+                        user_info = self._format_user_log(sender)
+                        logger.warning(f"用户 {user_info} 搜索 '{search_text}' 失败（未扣费）")
+                        return
+                    
+                    api_total = api_result.get('data', {}).get('total', 0)
+                    
+                    # 检查数据库缓存
+                    db_cache = await self.db.get_text_search_cache(search_text)
+                    db_total = db_cache['total'] if db_cache else None
+                    
+                    # 判断是否需要更新缓存
+                    if db_total is not None and db_total == api_total:
+                        # 使用数据库缓存
+                        logger.info(f"使用数据库缓存: 关键词='{search_text}', 总数={db_total}")
+                        result = json.loads(db_cache['results_json'])
+                        data_source = "💾 数据库"
+                    else:
+                        # 更新数据库缓存
+                        logger.info(f"更新数据库缓存: 关键词='{search_text}', API总数={api_total}, DB总数={db_total}")
+                        results_json = json.dumps(api_result, ensure_ascii=False)
+                        await self.db.save_text_search_cache(search_text, api_total, results_json)
+                        result = api_result
+                        data_source = "🌐 API"
+                    
+                    # 缓存到内存（用于翻页）
+                    cache_key = f"text_{search_text}_{event.sender_id}"
+                    self.text_search_cache[cache_key] = result
+                    
+                    # 限制内存缓存大小
+                    if len(self.text_search_cache) > 50:
+                        keys_to_remove = list(self.text_search_cache.keys())[:25]
+                        for key in keys_to_remove:
+                            del self.text_search_cache[key]
+                    
+                    # 格式化结果
+                    formatted, buttons = self._format_text_search_results(result, page=1, search_cost=search_cost, use_vip=use_vip_quota, vip_remaining=vip_quota['remaining'])
+                    
+                    # 记录关键词查询日志
+                    try:
+                        await self.db.log_text_query(search_text, event.sender_id, from_cache=bool(db_cache))
+                    except Exception as e:
+                        logger.error(f"记录关键词查询日志失败: {e}")
+                    
+                    if formatted and buttons:
+                        # 扣除搜索费用（如果使用VIP配额则不扣费）
+                        cost_msg = ""
+                        if use_vip_quota:
+                            cost_msg = f"💎 VIP免费查询 (剩余 {vip_quota['remaining']} 次)"
+                        else:
+                            deduct_success = await self.db.change_balance(
+                                event.sender_id,
+                                -search_cost,
+                                'text_search',
+                                f'搜索关键词: {search_text}'
+                            )
+                            
+                            if not deduct_success:
+                                await processing_msg.edit('❌ 扣费失败，请稍后重试')
+                                return
+                            cost_msg = f"💰 消耗 {search_cost:.0f} 积分"
+                        
+                        await processing_msg.edit(formatted, buttons=buttons, parse_mode='html', link_preview=False)
+                        
+                        sender = await event.get_sender()
+                        user_info = self._format_user_log(sender)
+                        new_balance = await self.db.get_balance(event.sender_id)
+                        logger.info(f"用户 {user_info} 通过快捷按钮搜索关键词 '{search_text}' ({data_source})，{cost_msg}，余额: {new_balance:.2f}")
+                    else:
+                        await processing_msg.edit('❌ 搜索结果为空或解析失败')
                 return
             
             # 跳过回复消息（避免管理员回复通知时触发查询）
@@ -2094,6 +2436,19 @@ class TelegramQueryBot:
         from vip import VIPModule
         self.vip_module = VIPModule(self.client, self.db)
         logger.info("VIP模块已启动")
+        
+        # 启动Web管理面板（后台线程）
+        if config.ADMIN_IDS:
+            try:
+                from web_admin import start_web_admin_thread
+                # 默认端口5000，可通过环境变量配置
+                import os
+                web_port = int(os.getenv('WEB_ADMIN_PORT', '5000'))
+                start_web_admin_thread(host='0.0.0.0', port=web_port)
+                logger.info(f"🌐 Web管理面板已启动: http://localhost:{web_port}")
+            except Exception as e:
+                logger.warning(f"⚠️ Web管理面板启动失败: {e}")
+                logger.info("💡 Bot将继续运行，但Web管理面板不可用")
         
         logger.info("Bot 正在运行，按 Ctrl+C 停止...")
         
