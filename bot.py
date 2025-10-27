@@ -10,6 +10,17 @@ import aiohttp
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.custom import InlineResults
+from telethon.tl.types import (
+    ReplyKeyboardMarkup,
+    InputKeyboardButtonRequestPeer,
+    RequestPeerTypeUser,
+    RequestPeerTypeChat,
+    RequestPeerTypeBroadcast,
+    KeyboardButtonRow,
+    UpdateNewMessage,
+    MessageService,
+    MessageActionRequestedPeerSentMe
+)
 import config
 from database import Database
 
@@ -681,7 +692,8 @@ class TelegramQueryBot:
                 Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
             ],
             [
-                Button.inline('🔽 隐藏菜单', 'cmd_hide_keyboard')
+                Button.inline('🔍 启用快捷查询', 'cmd_query_entity_id'),
+                Button.inline('关闭快捷查询', 'cmd_hide_keyboard')
             ]
         ]
         
@@ -701,6 +713,46 @@ class TelegramQueryBot:
         )
         
         return message, inline_buttons
+    
+    def _get_entity_query_keyboard(self):
+        """创建实体查询键盘"""
+        buttons = [
+            KeyboardButtonRow(buttons=[
+                InputKeyboardButtonRequestPeer(
+                    text='查用户',
+                    button_id=123456,
+                    peer_type=RequestPeerTypeUser(),
+                    max_quantity=1,
+                    name_requested=True,
+                    username_requested=True,
+                    photo_requested=False
+                ),
+                InputKeyboardButtonRequestPeer(
+                    text='查群组',
+                    button_id=123457,
+                    peer_type=RequestPeerTypeChat(),
+                    max_quantity=1,
+                    name_requested=True,
+                    username_requested=True,
+                    photo_requested=False
+                ),
+                InputKeyboardButtonRequestPeer(
+                    text='查频道',
+                    button_id=123458,
+                    peer_type=RequestPeerTypeBroadcast(),
+                    max_quantity=1,
+                    name_requested=True,
+                    username_requested=True,
+                    photo_requested=False
+                )
+            ])
+        ]
+        return ReplyKeyboardMarkup(
+            rows=buttons,
+            resize=True,
+            single_use=False,
+            selective=False
+        )
     
     def _register_handlers(self):
         """注册所有事件处理器"""
@@ -919,6 +971,18 @@ class TelegramQueryBot:
                         '⚠️ USDT充值功能正在完善中\n\n'
                         '请选择"充值积分"或"充值会员"进行充值',
                         alert=True
+                    )
+                
+                elif command == 'query_entity_id':
+                    # 显示实体查询键盘
+                    await event.answer()
+                    await event.respond(
+                        '🔍 <b>快速查询</b>\n\n'
+                        '• <b>选择用户查询</b>：调用完整查询功能\n'
+                        '• <b>查群组/频道ID</b>：获取ID信息\n\n'
+                        '请点击下方按钮选择：',
+                        buttons=self._get_entity_query_keyboard(),
+                        parse_mode='html'
                     )
                 
                 elif command == 'hide_keyboard':
@@ -1648,6 +1712,285 @@ class TelegramQueryBot:
                         parse_mode='markdown'
                     )
                     logger.warning(f"用户 {user_info} 查询 {username} 失败（未扣费）")
+        
+        @self.client.on(events.Raw)
+        async def handle_entity_shared(event):
+            """处理用户分享的实体信息"""
+            if isinstance(event, UpdateNewMessage):
+                message = event.message
+                if isinstance(message, MessageService):
+                    if (hasattr(message, 'peer_id') and 
+                        isinstance(message.action, MessageActionRequestedPeerSentMe)):
+                        
+                        sender_id = message.peer_id.user_id
+                        shared_peer = message.action.peers[0]
+                        
+                        # 根据共享对象类型构建响应消息
+                        if hasattr(shared_peer, 'user_id'):  # 用户 - 调用完整查询接口
+                            shared_id = shared_peer.user_id
+                            
+                            try:
+                                # 使用信号量控制并发
+                                async with self.semaphore:
+                                    # 发送处理中消息（不带键盘，以便后续可以编辑）
+                                    processing_msg = await self.client.send_message(
+                                        sender_id,
+                                        '🔍 正在查询用户信息...'
+                                    )
+                                    
+                                    # 检查用户余额
+                                    balance = await self.db.get_balance(sender_id)
+                                    query_cost = float(await self.db.get_config('query_cost', '1'))
+                                    
+                                    # 检查VIP状态和配额
+                                    vip_info = await self.db.get_user_vip_info(sender_id)
+                                    is_vip = vip_info['is_vip']
+                                    use_vip_quota = False
+                                    vip_quota = None
+                                    
+                                    if is_vip:
+                                        vip_quota = await self.db.get_vip_query_quota(sender_id)
+                                        if vip_quota['remaining'] > 0:
+                                            use_vip_quota = True
+                                    
+                                    # 检查余额是否足够（如果不使用VIP配额）
+                                    if not use_vip_quota and balance < query_cost:
+                                        await processing_msg.delete()
+                                        await self.client.send_message(
+                                            sender_id,
+                                            f'❌ 余额不足\n\n'
+                                            f'💰 当前余额: `{balance:.2f} 积分`\n'
+                                            f'💳 查询费用: `{query_cost:.0f} 积分`\n\n'
+                                            f'请先充值后再查询',
+                                            parse_mode='markdown',
+                                            buttons=self._get_entity_query_keyboard()
+                                        )
+                                        return
+                                    
+                                    # 先从数据库查询
+                                    result = None
+                                    from_db = False
+                                    db_result = None
+                                    
+                                    try:
+                                        db_result = await self.db.get_user_data(str(shared_id))
+                                        if db_result:
+                                            logger.info(f"数据库中找到用户 {shared_id} 缓存")
+                                    except Exception as e:
+                                        logger.error(f"数据库查询错误: {e}")
+                                    
+                                    # 调用API获取最新数据
+                                    api_result = await self._query_api(str(shared_id))
+                                    
+                                    # 如果API请求成功
+                                    if api_result and api_result.get('success'):
+                                        # 如果数据库有缓存，对比数据总数
+                                        if db_result:
+                                            db_user_data = db_result.get('data', {})
+                                            api_user_data = api_result.get('data', {})
+                                            
+                                            db_msg_count = db_user_data.get('messageCount', 0)
+                                            db_groups_count = db_user_data.get('groupsCount', 0)
+                                            api_msg_count = api_user_data.get('messageCount', 0)
+                                            api_groups_count = api_user_data.get('groupsCount', 0)
+                                            
+                                            # 对比数据总数
+                                            if db_msg_count == api_msg_count and db_groups_count == api_groups_count:
+                                                # 数据一致，使用数据库缓存
+                                                result = db_result
+                                                from_db = True
+                                                logger.info(f"用户 {shared_id} 数据未变化，使用缓存")
+                                            else:
+                                                # 数据有更新，使用API数据并更新数据库
+                                                result = api_result
+                                                from_db = False
+                                                logger.info(f"用户 {shared_id} 数据已更新，更新数据库")
+                                                try:
+                                                    await self.db.save_user_data(result)
+                                                except Exception as e:
+                                                    logger.error(f"保存到数据库失败: {e}")
+                                        else:
+                                            # 数据库没有缓存，使用API数据并保存
+                                            result = api_result
+                                            from_db = False
+                                            try:
+                                                await self.db.save_user_data(result)
+                                            except Exception as e:
+                                                logger.error(f"保存到数据库失败: {e}")
+                                    elif db_result:
+                                        # API请求失败但数据库有缓存，使用缓存数据
+                                        result = db_result
+                                        from_db = True
+                                        logger.warning(f"API请求失败，使用数据库缓存数据")
+                                    
+                                    if result and result.get('success'):
+                                        # 获取返回的用户信息
+                                        user_data = result.get('data', {})
+                                        basic_info = user_data.get('basicInfo', {})
+                                        returned_user_id = str(basic_info.get('id', user_data.get('userId', '')))
+                                        
+                                        # 检查返回的用户ID是否被隐藏
+                                        is_hidden = await self.db.is_user_hidden(returned_user_id) if returned_user_id else False
+                                        
+                                        if is_hidden:
+                                            # 用户被隐藏，不显示数据，不扣费
+                                            await processing_msg.delete()
+                                            await self.client.send_message(
+                                                sender_id,
+                                                f'🔒 <b>查询受限</b>\n\n'
+                                                f'该用户的数据已被管理员隐藏。\n\n'
+                                                f'💰 余额未扣除',
+                                                parse_mode='html',
+                                                buttons=self._get_entity_query_keyboard()
+                                            )
+                                            logger.info(f"用户尝试查询被隐藏的用户: {shared_id}")
+                                            return
+                                        
+                                        # 处理关联用户数据的智能缓存
+                                        user_id = returned_user_id or user_data.get('userId') or basic_info.get('id')
+                                        if user_id and config.SHOW_RELATED_USERS:
+                                            try:
+                                                api_related_count = user_data.get('commonGroupsStatCount', 0)
+                                                api_related_data = user_data.get('commonGroupsStat', [])
+                                                
+                                                db_related_cache = await self.db.get_related_users_cache(int(user_id))
+                                                db_related_count = db_related_cache['total'] if db_related_cache else None
+                                                
+                                                if db_related_count is not None and db_related_count == api_related_count:
+                                                    logger.info(f"使用关联用户数据库缓存: user_id={user_id}")
+                                                    cached_related_data = json.loads(db_related_cache['results_json'])
+                                                    result['data']['commonGroupsStat'] = cached_related_data
+                                                    result['data']['commonGroupsStatCount'] = db_related_count
+                                                else:
+                                                    logger.info(f"更新关联用户数据库缓存: user_id={user_id}")
+                                                    related_json = json.dumps(api_related_data, ensure_ascii=False)
+                                                    await self.db.save_related_users_cache(int(user_id), api_related_count, related_json)
+                                            except Exception as e:
+                                                logger.error(f"处理关联用户缓存失败: {e}")
+                                        
+                                        # 缓存结果到内存（用于分页）
+                                        if user_id:
+                                            cache_key = f"user_{user_id}"
+                                            self.query_cache[cache_key] = result
+                                            
+                                            # 限制缓存大小（最多保留100个）
+                                            if len(self.query_cache) > 100:
+                                                keys_to_remove = list(self.query_cache.keys())[:50]
+                                                for key in keys_to_remove:
+                                                    del self.query_cache[key]
+                                        
+                                        # 格式化结果
+                                        formatted, buttons = self._format_user_info(result, view='groups', page=1, is_vip=is_vip)
+                                        
+                                        if formatted and buttons:
+                                            # 扣除费用或使用VIP配额
+                                            cost_msg = ""
+                                            if use_vip_quota:
+                                                await self.db.use_vip_query_quota(sender_id)
+                                                remaining = vip_quota['remaining'] - 1
+                                                cost_msg = f"💎 VIP免费查询 (剩余 {remaining} 次)"
+                                            else:
+                                                deduct_success = await self.db.change_balance(
+                                                    sender_id, 
+                                                    -query_cost, 
+                                                    'query', 
+                                                    f'查询用户 {shared_id}'
+                                                )
+                                                
+                                                if not deduct_success:
+                                                    await processing_msg.delete()
+                                                    await self.client.send_message(
+                                                        sender_id,
+                                                        '❌ 扣费失败，请稍后重试',
+                                                        buttons=self._get_entity_query_keyboard()
+                                                    )
+                                                    return
+                                                cost_msg = f"💰 消耗 {query_cost:.0f} 积分"
+                                            
+                                            # 删除处理中消息，发送新消息（带内联按钮）
+                                            await processing_msg.delete()
+                                            await self.client.send_message(
+                                                sender_id,
+                                                formatted,
+                                                buttons=buttons,
+                                                parse_mode='html',
+                                                link_preview=False
+                                            )
+                                            
+                                            # 记录查询日志
+                                            try:
+                                                await self.db.log_query(str(shared_id), sender_id, from_db)
+                                            except Exception as log_e:
+                                                logger.error(f"记录查询日志失败: {log_e}")
+                                            
+                                            data_source = "💾 本地数据库" if from_db else "🔄 API实时"
+                                            new_balance = await self.db.get_balance(sender_id)
+                                            logger.info(f"用户 {sender_id} 通过分享查询了用户 {shared_id} ({data_source})，{cost_msg}，余额: {new_balance:.2f}")
+                                        else:
+                                            await processing_msg.delete()
+                                            await self.client.send_message(
+                                                sender_id,
+                                                '❌ 数据解析失败，请稍后重试',
+                                                buttons=self._get_entity_query_keyboard()
+                                            )
+                                    else:
+                                        balance = await self.db.get_balance(sender_id)
+                                        await processing_msg.delete()
+                                        await self.client.send_message(
+                                            sender_id,
+                                            f'❌ 查询失败\n\n'
+                                            f'可能的原因：\n'
+                                            f'• 用户不存在\n'
+                                            f'• API服务异常\n\n'
+                                            f'💰 余额未扣除，当前余额: `{balance:.2f} 积分`',
+                                            parse_mode='markdown',
+                                            buttons=self._get_entity_query_keyboard()
+                                        )
+                                        logger.warning(f"用户 {sender_id} 通过分享查询用户 {shared_id} 失败（未扣费）")
+                            except Exception as e:
+                                logger.error(f"处理用户分享查询失败: {e}")
+                                try:
+                                    await self.client.send_message(
+                                        sender_id,
+                                        '❌ 查询失败，请稍后重试',
+                                        buttons=self._get_entity_query_keyboard()
+                                    )
+                                except:
+                                    pass
+                            return
+                        
+                        elif hasattr(shared_peer, 'channel_id'):  # 频道或超级群组
+                            shared_id = shared_peer.channel_id
+                            shared_name = getattr(shared_peer, 'title', '未知')
+                            shared_username = getattr(shared_peer, 'username', None)
+                            username_text = f'@{shared_username}' if shared_username else '无用户名'
+                            response_text = (
+                                f'📢 <b>频道/群组信息</b>\n\n'
+                                f'ID：<code>-100{shared_id}</code>\n'
+                                f'名称：{shared_name}\n'
+                                f'用户名：{username_text}'
+                            )
+                        elif hasattr(shared_peer, 'chat_id'):  # 普通群组
+                            shared_id = shared_peer.chat_id
+                            shared_name = getattr(shared_peer, 'title', '未知')
+                            response_text = (
+                                f'💬 <b>群组信息</b>\n\n'
+                                f'ID：<code>-{shared_id}</code>\n'
+                                f'名称：{shared_name}'
+                            )
+                        else:
+                            return
+                        
+                        try:
+                            await self.client.send_message(
+                                sender_id,
+                                response_text,
+                                parse_mode='html',
+                                buttons=self._get_entity_query_keyboard()
+                            )
+                            logger.info(f"用户 {sender_id} 查询了实体ID: {shared_id}")
+                        except Exception as e:
+                            logger.error(f"发送实体查询结果失败: {e}")
     
     async def start(self):
         """启动 Bot"""
