@@ -641,10 +641,66 @@ class TelegramQueryBot:
             [
                 Button.inline('💳 充值积分', 'recharge_start'),
                 Button.inline('💎 购买VIP', 'vip_menu')
+            ],
+            [
+                Button.inline('« 返回主菜单', 'cmd_back_to_main')
             ]
         ]
         
         return message, buttons
+    
+    async def _build_main_menu(self, user_id: int):
+        """构建主菜单消息与按钮"""
+        # 获取用户余额
+        balance = await self.db.get_balance(user_id)
+        balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
+        
+        # 获取查询费用
+        query_cost = float(await self.db.get_config('query_cost', '1'))
+        cost_str = f'{int(query_cost)}' if query_cost == int(query_cost) else f'{query_cost:.2f}'
+        
+        # 生成邀请链接
+        invite_link = ''
+        if self.invite_module:
+            invite_link = self.invite_module.get_invite_link(user_id)
+        
+        # 创建分享邀请文本
+        bot_username = (await self.client.get_me()).username
+        share_text = f'🎁 推荐一个超好用的 TG 用户查询 Bot！\n\n✨ 功能特色：\n• 查询用户详细信息\n• 每日签到领积分\n• 邀请好友有奖励\n\n👉 点击我的专属邀请链接注册：\n{invite_link}\n\n💰 通过邀请链接注册，你我都能获得积分奖励！'
+        
+        # 创建内联按钮
+        inline_buttons = [
+            [
+                Button.inline('🎁 每日签到', 'cmd_checkin'),
+                Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
+            ],
+            [
+                Button.inline('🌟 账号充值', 'cmd_recharge_menu'),
+            ],
+            [
+                Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
+            ],
+            [
+                Button.inline('🔽 隐藏菜单', 'cmd_hide_keyboard')
+            ]
+        ]
+        
+        # 主菜单消息
+        message = (
+            f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
+            f'🧘‍♀️ <b>您的信息</b>\n'
+            f'• 用户ID: <code>{user_id}</code>\n'
+            f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
+            f'🎁 <b>邀请好友</b>\n'
+            f'邀请好友注册可获得奖励！\n'
+            f'您的专属邀请链接：\n'
+            f'<code>{invite_link}</code>\n\n'
+            f'🔍 <b>查询方法</b>\n'
+            f'<i>直接发送用户名或ID即可查询（消耗 {cost_str} 积分）</i>\n'
+            f'示例：<code>username</code> 或 <code>@username</code> 或 <code>123456789</code>\n\n'
+        )
+        
+        return message, inline_buttons
     
     def _register_handlers(self):
         """注册所有事件处理器"""
@@ -666,328 +722,10 @@ class TelegramQueryBot:
                 if referral_code and self.invite_module:
                     await self.invite_module.process_start_with_referral(event, referral_code)
                 
-                # 获取用户余额
-                balance = await self.db.get_balance(event.sender_id)
-                balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
-                
-                # 获取查询费用
-                query_cost = float(await self.db.get_config('query_cost', '1'))
-                cost_str = f'{int(query_cost)}' if query_cost == int(query_cost) else f'{query_cost:.2f}'
-                
-                # 生成邀请链接
-                invite_link = ''
-                if self.invite_module:
-                    invite_link = self.invite_module.get_invite_link(event.sender_id)
-                
-                # 创建分享邀请文本
-                bot_username = (await self.client.get_me()).username
-                share_text = f'🎁 推荐一个超好用的 TG 用户查询 Bot！\n\n✨ 功能特色：\n• 查询用户详细信息\n• 每日签到领积分\n• 邀请好友有奖励\n\n👉 点击我的专属邀请链接注册：\n{invite_link}\n\n💰 通过邀请链接注册，你我都能获得积分奖励！'
-                
-                # 创建内联按钮
-                inline_buttons = [
-                    [
-                        Button.inline('🎁 每日签到', 'cmd_checkin'),
-                        Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
-                    ],
-                    [
-                        Button.inline('🌟 账号充值', 'cmd_recharge_menu'),
-                    ],
-                    [
-                        Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
-                    ],
-                    [
-                        Button.inline('🔽 隐藏菜单', 'cmd_hide_keyboard')
-                    ]
-                ]
-                
-                # 先发送带内联按钮的消息
-                await event.respond(
-                    f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
-                    f'🧘‍♀️ <b>您的信息</b>\n'
-                    f'• 用户ID: <code>{event.sender_id}</code>\n'
-                    f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
-                    f'🎁 <b>邀请好友</b>\n'
-                    f'邀请好友注册可获得奖励！\n'
-                    f'您的专属邀请链接：\n'
-                    f'<code>{invite_link}</code>\n\n'
-                    f'🔍 <b>查询方法</b>\n'
-                    f'直接发送用户名或ID即可查询（消耗 {cost_str} 积分）\n\n'
-                    f'<b>支持的格式：</b>\n'
-                    f'• 用户名: <code>username</code>\n'
-                    f'• @用户名: <code>@username</code>\n'
-                    f'• Telegram链接: <code>t.me/username</code>\n'
-                    f'• 完整链接: <code>https://t.me/username</code>\n'
-                    f'• 用户ID: <code>123456789</code>\n\n'
-                    f'📌 <b>快捷命令</b>\n'
-                    f'• 购买VIP: <code>/buyvip</code>\n'
-                    f'• 关键词搜索: <code>/text 关键词</code>\n\n',
-                    buttons=inline_buttons,
-                    parse_mode='html'
-                )
-                
-                # 再发送一条带键盘按钮的消息
-                keyboard_buttons = [
-                    [Button.text('🏠 开始', resize=True), Button.text('🧘‍♀️ 个人中心', resize=True)],
-                    [Button.text('🔍 关键词查询', resize=True)],
-                    [Button.text('💳 购买积分', resize=True), Button.text('💎 购买VIP', resize=True)]
-                ]
-                
-                # 检查是否设置了客服（支持多个），有则添加客服按钮
-                service_list = await self.db.get_service_accounts()
-                if not service_list:
-                    # 兼容旧配置
-                    legacy = await self.db.get_config('service_username', '')
-                    if legacy:
-                        service_list = [legacy]
-                if service_list:
-                    keyboard_buttons.append([Button.text('📞 联系客服', resize=True)])
-                
-                await event.respond(
-                    '💡 使用下方按钮快速操作：',
-                    buttons=keyboard_buttons
-                )
+                # 构建并发送主菜单
+                message, buttons = await self._build_main_menu(event.sender_id)
+                await event.respond(message, buttons=buttons, parse_mode='html')
                 logger.info(f"用户 {user_info} 启动了Bot")
-        
-        @self.client.on(events.NewMessage(pattern=r'^(🏠 开始|🧘‍♀️ 个人中心|💳 购买积分|💎 购买VIP|🔍 关键词查询|📞 联系客服)$'))
-        async def keyboard_button_handler(event):
-            """处理键盘按钮"""
-            text = event.text.strip()
-            
-            if text == '🏠 开始':
-                # 直接执行 /start 的逻辑
-                async with self.semaphore:
-                    # 获取用户信息
-                    sender = await event.get_sender()
-                    user_info = self._format_user_log(sender)
-                    
-                    # 获取用户余额
-                    balance = await self.db.get_balance(event.sender_id)
-                    balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
-                    
-                    # 获取查询费用
-                    query_cost = float(await self.db.get_config('query_cost', '1'))
-                    cost_str = f'{int(query_cost)}' if query_cost == int(query_cost) else f'{query_cost:.2f}'
-                    
-                    # 生成邀请链接
-                    invite_link = ''
-                    if self.invite_module:
-                        invite_link = self.invite_module.get_invite_link(event.sender_id)
-                    
-                    # 创建分享邀请文本
-                    bot_username = (await self.client.get_me()).username
-                    share_text = f'🎁 推荐一个超好用的 TG 用户查询 Bot！\n\n✨ 功能特色：\n• 查询用户详细信息\n• 每日签到领积分\n• 邀请好友有奖励\n\n👉 点击我的专属邀请链接注册：\n{invite_link}\n\n💰 通过邀请链接注册，你我都能获得积分奖励！'
-                    
-                    # 创建内联按钮
-                    inline_buttons = [
-                        [
-                            Button.inline('🎁 每日签到', 'cmd_checkin'),
-                            Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
-                        ],
-                        [
-                            Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
-                        ]
-                    ]
-                    
-                    # 先发送带内联按钮的消息
-                    await event.respond(
-                        f'👋 <b>欢迎使用 Telegram 用户查询 Bot！</b>\n\n'
-                        f'🧘‍♀️ <b>您的信息</b>\n'
-                        f'• 用户ID: <code>{event.sender_id}</code>\n'
-                        f'• 当前余额: <code>{balance_str} 积分</code>\n\n'
-                        f'🎁 <b>邀请好友</b>\n'
-                        f'邀请好友注册可获得奖励！\n'
-                        f'您的专属邀请链接：\n'
-                        f'<code>{invite_link}</code>\n\n'
-                        f'🔍 <b>查询方法</b>\n'
-                        f'直接发送用户名或ID即可查询（消耗 {cost_str} 积分）\n\n'
-                        f'<b>支持的格式：</b>\n'
-                        f'• 用户名: <code>username</code>\n'
-                        f'• @用户名: <code>@username</code>\n'
-                        f'• Telegram链接: <code>t.me/username</code>\n'
-                        f'• 完整链接: <code>https://t.me/username</code>\n'
-                        f'• 用户ID: <code>123456789</code>\n\n'
-                        f'📌 <b>快捷命令</b>\n'
-                        f'• 购买VIP: <code>/buyvip</code>\n'
-                        f'• 关键词搜索: <code>/text 关键词</code>\n\n',
-                        buttons=inline_buttons,
-                        parse_mode='html'
-                    )
-                    
-                    # 再发送一条带键盘按钮的消息（刷新键盘）
-                    keyboard_buttons = [
-                        [Button.text('🏠 开始', resize=True), Button.text('🧘‍♀️ 个人中心', resize=True)],
-                        [Button.text('🔍 关键词查询', resize=True)],
-                        [Button.text('💳 购买积分', resize=True), Button.text('💎 购买VIP', resize=True)]
-                    ]
-                    
-                    # 检查是否设置了客服（支持多个），有则添加客服按钮
-                    service_list = await self.db.get_service_accounts()
-                    if not service_list:
-                        legacy = await self.db.get_config('service_username', '')
-                        if legacy:
-                            service_list = [legacy]
-                    if service_list:
-                        keyboard_buttons.append([Button.text('📞 联系客服', resize=True)])
-                    
-                    await event.respond(
-                        '💡 使用下方按钮快速操作：',
-                        buttons=keyboard_buttons
-                    )
-                    logger.info(f"用户 {user_info} 通过键盘按钮启动了Bot")
-            
-            elif text == '🧘‍♀️ 个人中心':
-                # 显示个人中心
-                async with self.semaphore:
-                    message, buttons = await self._build_personal_center(event.sender_id)
-                    await event.respond(message, buttons=buttons, parse_mode='html')
-            
-            elif text == '📞 联系客服':
-                # 显示客服联系方式（支持多个）
-                async with self.semaphore:
-                    service_list = await self.db.get_service_accounts()
-                    if not service_list:
-                        legacy = await self.db.get_config('service_username', '')
-                        if legacy:
-                            service_list = [legacy]
-                    if not service_list:
-                        await event.respond(
-                            '⚠️ 客服功能暂未开启\n\n'
-                            '请稍后再试或联系管理员',
-                            parse_mode='html'
-                        )
-                        return
-                    # 构建按钮：每个客服一个对话按钮
-                    rows = []
-                    for u in service_list:
-                        rows.append([Button.url(f'💬 @{u}', f'https://t.me/{u}')])
-                    rows.append([Button.inline('« 返回个人中心', 'cmd_balance')])
-                    accounts_text = "\n".join([f"• <code>@{u}</code>" for u in service_list])
-                    await event.respond(
-                        f'👨‍💼 <b>联系客服</b>\n\n'
-                        f'当前客服账号：\n{accounts_text}\n\n'
-                        f'点击下方按钮即可开始与客服对话\n'
-                        f'我们将尽快为您解答问题！',
-                        buttons=rows,
-                        parse_mode='html'
-                    )
-                    
-                    # 记录日志
-                    sender = await event.get_sender()
-                    user_info = self._format_user_log(sender)
-                    logger.info(f"用户 {user_info} 点击了联系客服")
-            
-            elif text == '💳 购买积分':
-                # 触发充值逻辑
-                if self.recharge_module:
-                    # 检查充值功能是否启用
-                    if not config.RECHARGE_WALLET_ADDRESS:
-                        await event.respond('❌ 充值功能暂未开放')
-                        return
-                    
-                    # 检查是否有未完成的订单
-                    active_order = await self.db.get_active_order(event.sender_id)
-                    if active_order:
-                        # 显示现有订单信息
-                        order_id = active_order['order_id']
-                        currency = active_order['currency']
-                        actual_amount = active_order['actual_amount']
-                        wallet = config.RECHARGE_WALLET_ADDRESS
-                        created_at = active_order['created_at']
-                        
-                        # 获取超时时间
-                        timeout = int(await self.db.get_config('recharge_timeout', '1800'))
-                        
-                        buttons = [
-                            [Button.inline('❌ 取消订单', f'cancel_order_{order_id}')],
-                            [Button.inline('« 返回个人中心', 'cmd_balance')]
-                        ]
-                        
-                        await event.respond(
-                            f'⚠️ <b>您有未完成的充值订单</b>\n\n'
-                            f'📋 订单号: <code>{order_id}</code>\n'
-                            f'💰 应付金额: <code>{actual_amount} {currency}</code>\n'
-                            f'📍 充值地址: <code>{wallet}</code>\n'
-                            f'⏰ 创建时间: <code>{created_at}</code>\n'
-                            f'⏱️ 订单有效期: <code>{timeout // 60}</code> 分钟\n\n'
-                            f'💡 请转账 <b>准确金额</b> 到上述地址\n'
-                            f'系统将自动检测到账并充值积分\n\n'
-                            f'如需创建新订单，请先取消当前订单',
-                            buttons=buttons,
-                            parse_mode='html'
-                        )
-                    else:
-                        # 显示充值选项
-                        buttons = [
-                            [Button.inline('💵 USDT充值', 'recharge_usdt')],
-                            [Button.inline('💎 TRX充值', 'recharge_trx')]
-                        ]
-                        
-                        # 获取最小充值金额
-                        min_amount = float(await self.db.get_config('recharge_min_amount', '10'))
-                        
-                        await event.respond(
-                            f'💳 <b>选择充值方式</b>\n\n'
-                            f'最小充值金额: <code>{min_amount}</code>\n\n'
-                            f'请选择您要使用的充值币种：',
-                            buttons=buttons,
-                            parse_mode='html'
-                        )
-                    
-                    # 记录日志
-                    sender = await event.get_sender()
-                    user_info = self._format_user_log(sender)
-                    logger.info(f"用户 {user_info} 点击了购买积分按钮")
-                else:
-                    await event.respond('❌ 充值功能暂未开放')
-            
-            elif text == '💎 购买VIP':
-                # 触发VIP购买逻辑
-                if self.vip_module:
-                    # 检查充值功能是否启用
-                    if not config.RECHARGE_WALLET_ADDRESS:
-                        await event.respond('❌ VIP购买功能暂未开放')
-                        return
-                    
-                    # 显示VIP购买菜单
-                    await self.vip_module.show_vip_purchase_menu(event, is_edit=False)
-                    
-                    # 记录日志
-                    sender = await event.get_sender()
-                    user_info = self._format_user_log(sender)
-                    logger.info(f"用户 {user_info} 点击了购买VIP按钮")
-                else:
-                    await event.respond('❌ VIP购买功能暂未开放')
-            
-            elif text == '🔍 关键词查询':
-                # 显示关键词查询说明（含返回个人中心）
-                # 兼容小数配置：例如 '5.0'
-                try:
-                    _cost_val = float(await self.db.get_config('text_search_cost', '1'))
-                except Exception:
-                    _cost_val = 1.0
-                _cost_str = f"{int(_cost_val)}" if float(_cost_val).is_integer() else f"{_cost_val:.2f}"
-                prompt_msg = await event.respond(
-                    '🔍 <b>关键词查询功能</b>\n\n'
-                    '<b>使用方法：</b>\n'
-                    '请 <b>引用回复</b> 这条消息，并输入您要搜索的关键词\n\n'
-                    '<b>示例：</b>\n'
-                    '回复此消息并输入: <code>hello</code>\n\n'
-                    '💡 <b>提示：</b>\n'
-                    f'• 每次搜索消耗 <code>{_cost_str}</code> 积分\n'
-                    '• 支持搜索所有群组的历史消息\n'
-                    '• 搜索结果支持翻页查看\n\n'
-                    '📌 也可以直接使用命令：<code>/text 关键词</code>',
-                    buttons=[[Button.inline('« 返回个人中心', 'cmd_balance')]],
-                    parse_mode='html'
-                )
-                
-                # 记录等待回复的消息ID
-                self.pending_text_search.add(prompt_msg.id)
-                
-                # 记录日志
-                sender = await event.get_sender()
-                user_info = self._format_user_log(sender)
-                logger.info(f"用户 {user_info} 点击了关键词查询按钮")
         
         @self.client.on(events.InlineQuery())
         async def inline_query_handler(event):
@@ -1076,6 +814,12 @@ class TelegramQueryBot:
                     message, buttons = await self._build_personal_center(event.sender_id)
                     await event.edit(message, buttons=buttons, parse_mode='html')
                 
+                elif command == 'back_to_main':
+                    # 返回主菜单
+                    await event.answer()
+                    message, buttons = await self._build_main_menu(event.sender_id)
+                    await event.edit(message, buttons=buttons, parse_mode='html')
+                
                 elif command == 'recharge_menu':
                     # 显示账号充值菜单
                     await event.answer()
@@ -1104,14 +848,12 @@ class TelegramQueryBot:
                         f'🛍 <b>价格介绍</b>\n'
                         f'1. 积分价格为 {points_per_usdt} 积分/USDT\n'
                         f'2. 会员价格为 {vip_usdt_str} USDT/月\n'
-                        f'3. 充值成功系统自动到账\n'
-                        f'4. USDT充值汇率为1:1，可用于兑换积分和会员或提现等其他操作\n\n'
+                        f'3. 充值成功系统自动到账\n\n'
                         f'⚠️ <b>注意事项：</b>\n'
-                        f'1. 由于USDT功能未完善，请谨慎选择充值USDT\n'
-                        f'2. 因用户自己选错充值方式导致的纠纷一律不予处理\n'
-                        f'3. 充值通道为USDT TRC20\n'
-                        f'4. 转账金额必须完全对应，否则会充值失败\n'
-                        f'5. 注意部分交易所存在扣手续费问题，导致实际上链金额错误\n\n'
+                        f'1. 因用户自己选错充值方式导致的纠纷一律不予处理\n'
+                        f'2. 充值通道为USDT TRC20\n'
+                        f'3. 转账金额必须完全对应，否则会充值失败\n'
+                        f'4. 注意部分交易所存在扣手续费问题，导致实际上链金额错误\n\n'
                         f'━━━━━━━━━━━━━━━━━━\n\n'
                         f'🟢    <b>充值积分：</b>{example_usdt} USDT\n'
                         f'├─  到账积分：{example_points_str} 积分\n'
@@ -1119,16 +861,12 @@ class TelegramQueryBot:
                         f'⭐️    <b>充值会员：</b>{vip_usdt_str} USDT\n'
                         f'├─  到账会员：30 天\n'
                         f'└─  包含赠送：0 天\n\n'
-                        f'💰    <b>充值USDT：</b>{example_usdt} USDT\n'
-                        f'├─  到账USDT：{example_usdt} USDT\n'
-                        f'└─  包含赠送：0 USDT\n\n'
                         f'💡 <b>请选择充值类型：</b>'
                     )
                     
                     buttons = [
                         [Button.inline('🟢 充值积分', 'cmd_buy_points')],
                         [Button.inline('⭐️ 充值会员', 'cmd_buy_vip')],
-                        [Button.inline('💰 充值USDT', 'cmd_buy_usdt')],
                         [Button.inline('🔙 返回', 'cmd_back_to_start')]
                     ]
                     
