@@ -607,6 +607,57 @@ class RechargeModule:
                 pass
         logger.info("充值扫描器已停止")
     
+    async def _show_recharge_menu(self, event, selected_amount=50, is_edit=True):
+        """显示一页式充值菜单"""
+        try:
+            # 计算积分和TRX价格
+            points = await exchange_manager.usdt_to_points(selected_amount)
+            trx_amount = await exchange_manager.usdt_to_trx(selected_amount)
+            
+            # 查询费用
+            query_cost = float(await self.db.get_config('query_cost', '1'))
+            query_times = int(points / query_cost)
+            
+            text = (
+                f"💳 <b>积分充值</b>\n\n"
+                f"• 充值即得积分，用于查询服务\n"
+                f"• 每次查询消耗 {int(query_cost)} 积分\n"
+                f"• 转账后约 13 秒自动到账\n\n"
+                f"<b>{selected_amount} USDT / {trx_amount:.2f} TRX</b>\n"
+                f"<b>获得积分：{points:.0f} 积分（可查询 {query_times} 次）</b>\n"
+                f"（一次支付，安全可靠）\n\n"
+                f"👇 请选择充值金额："
+            )
+            
+            # 金额选择按钮（带对钩标记）
+            buttons = [
+                [
+                    Button.inline(f"{'☑️ ' if selected_amount == 10 else '◻️ '}10 USDT", b"recharge_select_10"),
+                    Button.inline(f"{'☑️ ' if selected_amount == 50 else '◻️ '}50 USDT", b"recharge_select_50"),
+                    Button.inline(f"{'☑️ ' if selected_amount == 100 else '◻️ '}100 USDT", b"recharge_select_100"),
+                ],
+                [
+                    Button.inline(f"{'☑️ ' if selected_amount == 200 else '◻️ '}200 USDT", b"recharge_select_200"),
+                ],
+            ]
+            
+            # 支付方式选择
+            buttons.append([
+                Button.inline("💎 USDT支付", f"recharge_quick_pay_{selected_amount}_usdt"),
+                Button.inline("💵 TRX支付", f"recharge_quick_pay_{selected_amount}_trx")
+            ])
+            
+            buttons.append([Button.inline("« 返回", b"cmd_recharge_menu")])
+            
+            if is_edit:
+                await event.edit(text, buttons=buttons, parse_mode='html')
+            else:
+                await event.respond(text, buttons=buttons, parse_mode='html')
+                
+        except Exception as e:
+            logger.error(f"显示充值菜单错误: {e}")
+            await event.respond("❌ 系统错误，请稍后再试")
+    
     def register_handlers(self) -> None:
         """注册充值相关的命令处理器"""
         from telethon import events, Button
@@ -631,7 +682,13 @@ class RechargeModule:
                 if active_order:
                     # 显示现有订单
                     await event.answer()
-                    await self._show_order_info_edit(event, active_order)
+                    order_type = active_order.get('order_type', 'recharge')
+                    if order_type == 'vip' and self.vip_module:
+                        # VIP订单
+                        await self.vip_module._show_vip_order(event, active_order)
+                    else:
+                        # 充值订单
+                        await self._show_order_info_edit(event, active_order)
                     return
                 
                 await event.answer()
@@ -660,30 +717,123 @@ class RechargeModule:
         
         @self.client.on(events.CallbackQuery(pattern=r'^recharge_points_menu$'))
         async def recharge_points_menu_handler(event):
-            """显示积分充值菜单"""
+            """显示积分充值菜单（一页式）"""
             try:
                 await event.answer()
                 
-                # 显示积分充值选项
+                # 检查是否有未完成的订单
+                active_order = await self.db.get_active_order(event.sender_id)
+                if active_order:
+                    # 显示现有订单
+                    order_type = active_order.get('order_type', 'recharge')
+                    if order_type == 'vip' and self.vip_module:
+                        # VIP订单
+                        await self.vip_module._show_vip_order(event, active_order)
+                    else:
+                        # 充值订单
+                        await self._show_order_info_edit(event, active_order)
+                    return
+                
+                await self._show_recharge_menu(event, selected_amount=50, is_edit=True)
+            except Exception as e:
+                logger.error(f"显示积分充值菜单失败: {e}")
+                await event.answer('❌ 操作失败', alert=True)
+        
+        @self.client.on(events.CallbackQuery(pattern=r'^recharge_select_'))
+        async def recharge_select_amount_handler(event):
+            """处理金额选择"""
+            try:
+                amount_str = event.data.decode('utf-8').replace('recharge_select_', '')
+                amount = int(amount_str)
+                await event.answer()
+                await self._show_recharge_menu(event, selected_amount=amount, is_edit=True)
+            except Exception as e:
+                logger.error(f"处理金额选择失败: {e}")
+                await event.answer('❌ 操作失败', alert=True)
+        
+        @self.client.on(events.CallbackQuery(pattern=r'^recharge_quick_pay_'))
+        async def recharge_quick_pay_handler(event):
+            """处理快速支付"""
+            try:
+                data = event.data.decode('utf-8')
+                parts = data.replace('recharge_quick_pay_', '').split('_')
+                amount = float(parts[0])
+                currency = parts[1].upper()
+                
+                user_id = event.sender_id
+                
+                # 检查是否已有活跃订单
+                active_order = await self.db.get_active_order(user_id)
+                if active_order:
+                    await event.answer('⚠️ 您有未完成的订单，请先完成或取消', alert=True)
+                    return
+                
+                await event.answer("正在创建订单...", alert=False)
+                
+                # 分配金额标识
+                actual_amount = await self.db.allocate_amount_identifier(amount, currency)
+                
+                if not actual_amount:
+                    await event.answer('❌ 系统繁忙，请稍后重试', alert=True)
+                    return
+                
+                # 创建订单
+                timeout = int(await self.db.get_config('recharge_timeout', '1800'))
+                expired_at = (datetime.now() + timedelta(seconds=timeout)).isoformat()
+                
+                order_id = await self.db.create_recharge_order(
+                    user_id, currency, amount, actual_amount,
+                    config.RECHARGE_WALLET_ADDRESS, expired_at
+                )
+                
+                if not order_id:
+                    await self.db.release_identifier(actual_amount, currency)
+                    await event.answer('❌ 创建订单失败', alert=True)
+                    return
+                
+                # 保存订单消息ID
+                self.user_order_messages[user_id] = event.message_id
+                
+                # 计算积分
+                if currency == 'USDT':
+                    points = await exchange_manager.usdt_to_points(actual_amount)
+                else:
+                    points = await exchange_manager.trx_to_points(actual_amount)
+                
+                # 显示订单信息
+                remaining_minutes = timeout // 60
+                
                 buttons = [
-                    [Button.inline('💎 USDT充值', 'recharge_usdt')],
-                    [Button.inline('💵 TRX充值', 'recharge_trx')],
-                    [Button.inline('« 返回', 'recharge_start')]
+                    [Button.inline('❌ 取消订单', f'cancel_order_{order_id}')]
                 ]
                 
-                # 获取最小充值金额
-                min_amount = float(await self.db.get_config('recharge_min_amount', '10'))
-                
-                await event.edit(
-                    '💳 <b>积分充值</b>\n\n'
-                    f'最小充值金额: <code>{min_amount}</code> USDT\n\n'
-                    '请选择您要使用的充值币种：',
+                # 发送新消息而不是编辑
+                await event.respond(
+                    f'✅ <b>订单创建成功</b>\n\n'
+                    f'<b>订单号:</b> <code>{order_id}</code>\n'
+                    f'<b>币种:</b> {currency}\n'
+                    f'<b>充值金额:</b> {actual_amount} {currency}\n'
+                    f'<b>到账积分:</b> <code>{points:.2f}</code> 积分\n\n'
+                    f'━━━━━━━━━━━━━━━━━━\n\n'
+                    f'<b>⚠️ 请务必转账以下准确金额：</b>\n'
+                    f'<code>{actual_amount}</code> {currency}\n\n'
+                    f'<b>收款地址：</b>\n'
+                    f'<code>{config.RECHARGE_WALLET_ADDRESS}</code>\n\n'
+                    f'━━━━━━━━━━━━━━━━━━\n\n'
+                    f'⏰ 订单有效期: <b>{remaining_minutes}</b> 分钟\n'
+                    f'💡 转账后约 <b>13秒</b> 内自动到账\n\n'
+                    f'⚠️ <b>重要提示：</b>\n'
+                    f'• 必须转账准确金额 <code>{actual_amount}</code>\n'
+                    f'• 包括小数部分\n'
+                    f'• 金额错误将无法自动到账',
                     buttons=buttons,
                     parse_mode='html'
                 )
                 
+                logger.info(f"用户 {user_id} 快速创建充值订单: {order_id}, {actual_amount} {currency}")
+                
             except Exception as e:
-                logger.error(f"显示积分充值菜单失败: {e}")
+                logger.error(f"快速支付处理失败: {e}")
                 await event.answer('❌ 操作失败', alert=True)
         
         @self.client.on(events.NewMessage(pattern=r'^/recharge$'))
@@ -976,20 +1126,31 @@ class RechargeModule:
         created_at = order['created_at']
         expired_at = order['expired_at']
         
-        # 固定显示30分钟
-        remaining_minutes = 30
+        # 计算到账积分
+        if currency == 'USDT':
+            points = await exchange_manager.usdt_to_points(actual_amount)
+        else:
+            points = await exchange_manager.trx_to_points(actual_amount)
+        
+        # 计算剩余时间
+        try:
+            expire_time = datetime.fromisoformat(expired_at)
+            remaining_seconds = (expire_time - datetime.now()).total_seconds()
+            remaining_minutes = max(0, int(remaining_seconds // 60))
+        except:
+            remaining_minutes = 30  # 备用值
         
         buttons = [
-            [Button.inline('取消订单', f"cancel_order_{order['order_id']}")],
-            [Button.inline('« 返回主菜单', 'cmd_back_to_start')]
+            [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")]
         ]
         
         await event.respond(
-            f'📋 <b>充值订单</b>\n\n'
+            f'⚠️ <b>您有未完成的订单</b>\n\n'
+            f'💎 <b>充值订单</b>\n\n'
             f'<b>订单号:</b> <code>{order["order_id"]}</code>\n'
             f'<b>币种:</b> {currency}\n'
-            f'<b>原始金额:</b> {amount} {currency}\n'
-            f'<b>实际支付:</b> <code>{actual_amount}</code> {currency}\n\n'
+            f'<b>充值金额:</b> {actual_amount} {currency}\n'
+            f'<b>到账积分:</b> <code>{points:.2f}</code> 积分\n\n'
             f'<b>收款地址:</b>\n<code>{wallet}</code>\n\n'
             f'⏰ <b>剩余时间:</b> {remaining_minutes} 分钟\n\n'
             f'💡 <b>请务必转账准确金额 {actual_amount}，否则无法自动到账！</b>',
@@ -998,7 +1159,7 @@ class RechargeModule:
         )
     
     async def _show_order_info_edit(self, event, order: Dict) -> None:
-        """显示订单信息（编辑消息）"""
+        """显示订单信息（发送新消息）"""
         currency = order['currency']
         amount = order['amount']
         actual_amount = order['actual_amount']
@@ -1006,20 +1167,32 @@ class RechargeModule:
         created_at = order['created_at']
         expired_at = order['expired_at']
         
-        # 固定显示30分钟
-        remaining_minutes = 30
+        # 计算到账积分
+        if currency == 'USDT':
+            points = await exchange_manager.usdt_to_points(actual_amount)
+        else:
+            points = await exchange_manager.trx_to_points(actual_amount)
+        
+        # 计算剩余时间
+        try:
+            expire_time = datetime.fromisoformat(expired_at)
+            remaining_seconds = (expire_time - datetime.now()).total_seconds()
+            remaining_minutes = max(0, int(remaining_seconds // 60))
+        except:
+            remaining_minutes = 30  # 备用值
         
         buttons = [
-            [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")],
-            [Button.inline('« 返回', 'recharge_start')]
+            [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")]
         ]
         
-        await event.edit(
-            f'📋 <b>充值订单</b>\n\n'
+        # 发送新消息而不是编辑
+        await event.respond(
+            f'⚠️ <b>您有未完成的订单</b>\n\n'
+            f'💎 <b>充值订单</b>\n\n'
             f'<b>订单号:</b> <code>{order["order_id"]}</code>\n'
             f'<b>币种:</b> {currency}\n'
-            f'<b>原始金额:</b> {amount} {currency}\n'
-            f'<b>实际支付:</b> <code>{actual_amount}</code> {currency}\n\n'
+            f'<b>充值金额:</b> {actual_amount} {currency}\n'
+            f'<b>到账积分:</b> <code>{points:.2f}</code> 积分\n\n'
             f'<b>收款地址:</b>\n<code>{wallet}</code>\n\n'
             f'⏰ <b>剩余时间:</b> {remaining_minutes} 分钟\n\n'
             f'💡 <b>请务必转账准确金额 {actual_amount}，否则无法自动到账！</b>',

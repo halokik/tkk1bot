@@ -1078,8 +1078,8 @@ class Database:
                 return False, 0, "今天已经签到过了！"
             
             # 获取签到奖励范围
-            checkin_min = int(float(await self.get_config('checkin_min', '1')))
-            checkin_max = int(float(await self.get_config('checkin_max', '5')))
+            checkin_min = int(float(await self.get_config('checkin_min', '2')))
+            checkin_max = int(float(await self.get_config('checkin_max', '3')))
             
             # 随机整数奖励
             reward = float(random.randint(checkin_min, checkin_max))
@@ -1328,7 +1328,7 @@ class Database:
                 return False, "不能使用自己的邀请链接"
             
             # 获取邀请奖励金额
-            reward = float(await self.get_config('invite_reward', '1'))
+            reward = float(await self.get_config('invite_reward', '5'))
             
             # 记录邀请
             await self.db.execute("""

@@ -1863,16 +1863,16 @@ class AdminModule:
                     else:
                         await event.respond('❌ 操作失败，请稍后重试')
                     
-                    raise events.StopPropagation()
-                    
                 except ValueError:
                     await event.respond('❌ 请输入有效的数字金额')
-                    raise events.StopPropagation()
+                    self.admin_state.pop(event.sender_id, None)
                 except Exception as e:
                     logger.error(f"余额操作失败: {e}")
                     await event.respond('❌ 操作失败')
                     self.admin_state.pop(event.sender_id, None)
-                    raise events.StopPropagation()
+                
+                # 阻止事件继续传播
+                raise events.StopPropagation()
             
             # 处理广播消息
             elif state == 'broadcasting':

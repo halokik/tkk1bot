@@ -302,14 +302,14 @@ class TelegramQueryBot:
         if page > 1:
             row.append(Button.inline('上一页', f'text_search_{search_text}_{page-1}'))
         else:
-            row.append(Button.inline('上一页 🔒', f'noop'))
+            row.append(Button.inline('上一页', f'noop'))
         
         row.append(Button.inline(f'{page}/{total_pages}', f'noop'))
         
         if page < total_pages:
             row.append(Button.inline('下一页', f'text_search_{search_text}_{page+1}'))
         else:
-            row.append(Button.inline('下一页 🔒', f'noop'))
+            row.append(Button.inline('下一页', f'noop'))
         
         buttons.append(row)
         # 第三行：返回主菜单
@@ -344,12 +344,15 @@ class TelegramQueryBot:
         common_groups_stat_count = user_data.get('commonGroupsStatCount', 0)
         
         # 构建基础信息部分
-        result = "👤 用户信息\n\n"
+        result = "🧘‍♀️用户信息\n\n"
         result += f"ID: <code>{user_id}</code>\n"
         if username:
             result += f"用户名: @{username}\n"
         else:
             result += f"用户名: 无\n"
+        
+        # 统计信息（简化到一行）
+        result += f"群组数: {groups_count}   发言数: {message_count}\n"
         
         # 姓名历史
         names = user_data.get('names', [])
@@ -362,9 +365,9 @@ class TelegramQueryBot:
             
             # 显示姓名历史标题，包含总数和剩余未显示数
             if remaining > 0:
-                result += f"\n📝 姓名历史 (共 {total_names} 条，还有 {remaining} 条未显示)\n"
+                result += f"\n✏️ 姓名历史 (共 {total_names} 条，还有 {remaining} 条未显示)\n"
             else:
-                result += f"\n📝 姓名历史 (共 {total_names} 条)\n"
+                result += f"\n✏️ 姓名历史 (共 {total_names} 条)\n"
             
             # 限制只显示最近的5条姓名历史记录
             for name_record in names[:display_limit]:
@@ -403,19 +406,6 @@ class TelegramQueryBot:
             if full_name and full_name != '无':
                 result += f"\n📝 姓名: {full_name}\n"
         
-        # 状态和类型
-        result += f"\n状态: {'✅ 活跃' if is_active else '⚠️ 非活跃'}\n"
-        result += f"类型: {'🤖 Bot' if is_bot else '👤 用户'}\n"
-        
-        # 统计信息
-        result += f"\n📊 统计信息\n"
-        result += f"💬 发言数: {message_count}\n"
-        result += f"👥 群组数: {groups_count}\n"
-        if config.SHOW_RELATED_USERS and common_groups_stat_count > 0:
-            result += f"🔗 关联用户: {common_groups_stat_count}\n"
-        
-        result += "\n━━━━━━━━━━━━━━━━━━\n"
-        
         # 根据视图类型显示不同内容
         items_per_page = 10
         
@@ -430,7 +420,6 @@ class TelegramQueryBot:
             page_groups = groups[start_idx:end_idx]
             
             result += f"\n群组列表 ({groups_count}) - 第 {page}/{total_pages} 页\n\n"
-            
             if page_groups:
                 for i, group in enumerate(page_groups, start=start_idx + 1):
                     chat = group.get('chat', {})
@@ -448,7 +437,7 @@ class TelegramQueryBot:
                         # 私有群组显示ID
                         result += f"  {i}. {title_escaped} (ID: <code>{chat_id}</code>)\n"
             else:
-                result += "  暂无群组记录\n"
+                result += "暂无群组记录\n"
         
         elif view == 'messages':
             messages = user_data.get('messages', [])
@@ -460,8 +449,7 @@ class TelegramQueryBot:
             end_idx = start_idx + items_per_page
             page_messages = messages[start_idx:end_idx]
             
-            result += f"\n💬 发言记录 ({message_count}) - 第 {page}/{total_pages} 页\n\n"
-            
+            result += f"\n发言记录 ({message_count}) - 第 {page}/{total_pages} 页\n\n"
             if page_messages:
                 for i, msg in enumerate(page_messages, start=start_idx + 1):
                     # 获取消息文本
@@ -515,9 +503,9 @@ class TelegramQueryBot:
                                 group_id_str = group_id_str[4:]
                             link = f"https://t.me/c/{group_id_str}/{msg_id}"
                     
-                    result += f"  {i}. 💬 <a href='{link}'>{display_text_escaped}</a>\n"
+                    result += f"  {i}. <a href='{link}'>{display_text_escaped}</a>\n"
             else:
-                result += "  暂无发言记录\n"
+                result += "暂无发言记录\n"
         
         elif view == 'related':
             common_groups_stat = user_data.get('commonGroupsStat', [])
@@ -530,7 +518,6 @@ class TelegramQueryBot:
             page_related = common_groups_stat[start_idx:end_idx]
             
             result += f"\n🔗 关联用户 ({common_groups_stat_count}) - 第 {page}/{total_pages} 页\n\n"
-            
             if page_related:
                 for i, related_user in enumerate(page_related, start=start_idx + 1):
                     related_user_id = related_user.get('user_id', '')
@@ -553,12 +540,12 @@ class TelegramQueryBot:
                     # 如果用户活跃且有用户名，显示为链接
                     if is_user_active and related_username:
                         user_link = f"https://t.me/{related_username}"
-                        result += f"{i}. <a href='{user_link}'>{display_name_escaped}</a>\n"
+                        result += f"  {i}. <a href='{user_link}'>{display_name_escaped}</a>\n"
                     else:
                         # 用户失效或无用户名，不显示链接
-                        result += f"{i}. {display_name_escaped}\n"
+                        result += f"  {i}. {display_name_escaped}\n"
             else:
-                result += "  暂无关联用户\n"
+                result += "暂无关联用户\n"
         
         # 创建内联按钮
         buttons = []
@@ -602,14 +589,14 @@ class TelegramQueryBot:
         if page > 1:
             row2.append(Button.inline('上一页', f'view_{view}_{user_id}_{page-1}'))
         else:
-            row2.append(Button.inline('上一页 🔒', f'noop'))
+            row2.append(Button.inline('上一页', f'noop'))
         
         row2.append(Button.inline(f'{page}/{total_pages}', f'noop'))
         
         if page < total_pages:
             row2.append(Button.inline('下一页', f'view_{view}_{user_id}_{page+1}'))
         else:
-            row2.append(Button.inline('下一页 🔒', f'noop'))
+            row2.append(Button.inline('下一页', f'noop'))
         
         buttons.append(row2)
         
@@ -627,7 +614,7 @@ class TelegramQueryBot:
         query_cost = float(await self.db.get_config('query_cost', '1'))
         
         # VIP信息
-        vip_display = await self.vip_module.get_vip_display_info(user_id) if self.vip_module else "👤 <b>用户类型：</b>普通用户"
+        vip_display = await self.vip_module.get_vip_display_info(user_id) if self.vip_module else "<b>用户类型：</b>普通用户"
         
         # 文本格式化
         balance_str = f'{int(balance)}' if balance == int(balance) else f'{balance:.2f}'
@@ -640,23 +627,18 @@ class TelegramQueryBot:
         message = (
             f'🧘‍♀️ <b>个人中心</b>\n\n'
             f'{vip_display}\n\n'
-            f'💰 <b>账户余额</b>\n'
             f'当前余额: <code>{balance_str} 积分</code>\n'
             f'可查询次数: <code>{int(balance / query_cost)}</code> 次\n\n'
-            f'📊 <b>统计信息</b>\n'
+            f'<b>统计信息：</b>\n'
             f'累计签到: <code>{checkin_info.get("total_days", 0)}</code> 天\n'
             f'签到奖励: <code>{checkin_rewards_str} 积分</code>\n'
             f'邀请人数: <code>{invite_stats.get("total_invites", 0)}</code> 人\n'
             f'邀请奖励: <code>{invite_rewards_str} 积分</code>\n\n'
-            f'💡 提示: 每次查询消耗 <code>{int(query_cost)}</code> 积分'
+            f'<i>💡 提示: 每次查询消耗 {int(query_cost)} 积分</i>'
         )
         
-        # 按钮（并列：充值积分 + 购买VIP）
+        # 按钮
         buttons = [
-            [
-                Button.inline('💳 充值积分', 'recharge_start'),
-                Button.inline('💎 购买VIP', 'vip_menu')
-            ],
             [
                 Button.inline('« 返回主菜单', 'cmd_back_to_main')
             ]
@@ -690,10 +672,10 @@ class TelegramQueryBot:
                 Button.inline('🧘‍♀️ 个人中心', 'cmd_balance'),
             ],
             [
-                Button.inline('🌟 账号充值', 'cmd_recharge_menu'),
+                Button.inline('🎁 邀请好友', 'cmd_invite_info')
             ],
             [
-                Button.switch_inline('🎁 邀请好友获得积分', share_text, same_peer=False)
+                Button.inline('💎 账号充值', 'cmd_recharge_menu')
             ],
             [
                 Button.inline('💫启用快捷查询', 'cmd_query_entity_id'),
@@ -930,41 +912,59 @@ class TelegramQueryBot:
                     await event.edit(message, buttons=buttons, parse_mode='html')
                 
                 elif command == 'buy_points':
-                    # 充值积分 - 显示充值选项
+                    # 充值积分 - 显示一页式充值菜单
                     await event.answer()
+                    
+                    logger.info(f"用户 {event.sender_id} 点击充值积分按钮")
                     
                     # 检查充值功能是否启用
                     if not config.RECHARGE_WALLET_ADDRESS:
+                        logger.warning(f"充值功能未开放，钱包地址未配置")
                         await event.answer('❌ 充值功能暂未开放', alert=True)
                         return
                     
                     # 检查是否有未完成的订单
                     active_order = await self.db.get_active_order(event.sender_id)
                     if active_order:
-                        await event.answer('⚠️ 您有未完成的订单', alert=True)
+                        logger.info(f"用户 {event.sender_id} 有未完成的订单: {active_order['order_id']}")
+                        # 显示未完成的订单详情
+                        order_type = active_order.get('order_type', 'recharge')
+                        if order_type == 'vip' and self.vip_module:
+                            # VIP订单
+                            await self.vip_module._show_vip_order(event, active_order)
+                        elif self.recharge_module:
+                            # 充值订单
+                            await self.recharge_module._show_order_info_edit(event, active_order)
                         return
                     
-                    # 显示充值选项
-                    buttons = [
-                        [Button.inline('💎 USDT充值', 'recharge_usdt')],
-                        [Button.inline('💵 TRX充值', 'recharge_trx')],
-                        [Button.inline('🔙 返回', 'cmd_recharge_menu')]
-                    ]
-                    
-                    # 获取最小充值金额
-                    min_amount = float(await self.db.get_config('recharge_min_amount', '10'))
-                    
-                    await event.edit(
-                        '💳 <b>选择充值方式</b>\n\n'
-                        f'最小充值金额: <code>{min_amount}</code>\n\n'
-                        '请选择您要使用的充值币种：',
-                        buttons=buttons,
-                        parse_mode='html'
-                    )
+                    # 使用充值模块的一页式菜单
+                    if self.recharge_module:
+                        logger.info(f"显示充值菜单给用户 {event.sender_id}")
+                        await self.recharge_module._show_recharge_menu(event, selected_amount=50, is_edit=True)
+                    else:
+                        logger.error("充值模块未初始化")
+                        await event.answer('❌ 充值功能暂不可用', alert=True)
                 
                 elif command == 'buy_vip':
                     # 开通VIP - 显示VIP购买菜单
                     await event.answer()
+                    
+                    logger.info(f"用户 {event.sender_id} 点击购买VIP按钮")
+                    
+                    # 检查是否有未完成的订单
+                    active_order = await self.db.get_active_order(event.sender_id)
+                    if active_order:
+                        logger.info(f"用户 {event.sender_id} 有未完成的订单: {active_order['order_id']}")
+                        # 显示未完成的订单详情
+                        order_type = active_order.get('order_type', 'recharge')
+                        if order_type == 'vip' and self.vip_module:
+                            # VIP订单
+                            await self.vip_module._show_vip_order(event, active_order)
+                        elif self.recharge_module:
+                            # 充值订单
+                            await self.recharge_module._show_order_info_edit(event, active_order)
+                        return
+                    
                     if self.vip_module:
                         await self.vip_module.show_vip_purchase_menu(event, is_edit=True)
                     else:
@@ -1031,6 +1031,12 @@ class TelegramQueryBot:
                         
                         # 2. 数据库没有，用用户ID调用API查询
                         if not result:
+                            # 第一次查询，显示提示消息
+                            await event.respond(
+                                '🔍 <b>正在查询您的信息...</b>\n\n'
+                                '⏳ 请稍候，正在为您获取数据',
+                                parse_mode='html'
+                            )
                             api_result = await self._query_api(str(user_id))
                             if api_result and api_result.get('success'):
                                 result = api_result
@@ -1090,6 +1096,53 @@ class TelegramQueryBot:
                             parse_mode='html'
                         )
                 
+                elif command == 'invite_info':
+                    # 显示邀请好友说明
+                    await event.answer()
+                    
+                    # 获取配置信息
+                    invite_reward = await self.db.get_config('invite_reward', '5')
+                    invite_reward = float(invite_reward)
+                    invite_reward_str = f'{int(invite_reward)}' if invite_reward == int(invite_reward) else f'{invite_reward:.1f}'
+                    
+                    # 获取邀请链接
+                    invite_link = ''
+                    if self.invite_module:
+                        invite_link = self.invite_module.get_invite_link(event.sender_id)
+                    
+                    # 获取已邀请人数
+                    invite_stats = await self.db.get_invitation_stats(event.sender_id)
+                    invite_count = invite_stats.get('total_invites', 0)
+                    total_rewards = invite_stats.get('total_rewards', 0)
+                    
+                    # 创建分享邀请文本
+                    share_text = f'🎁 推荐一个超好用的 TG 用户查询 Bot！\n\n✨ 功能特色：\n• 查询用户详细信息\n• 每日签到领积分\n• 邀请好友有奖励\n\n👉 点击我的专属邀请链接注册：\n{invite_link}\n\n💰 通过邀请链接注册，你我都能获得积分奖励！'
+                    
+                    invite_message = (
+                        f'🎁 <b>邀请好友说明</b>\n\n'
+                        f'💰 <b>奖励规则：</b>\n'
+                        f'• 好友通过您的邀请链接注册\n'
+                        f'• 您和好友各获得 <b>{invite_reward_str} 积分</b>\n'
+                        f'• 奖励立即到账\n\n'
+                        f'📊 <b>邀请统计：</b>\n'
+                        f'• 已邀请好友：<b>{invite_count}</b> 人\n'
+                        f'• 累计获得：<b>{total_rewards:.0f}</b> 积分\n\n'
+                        f'🔗 <b>您的专属邀请链接：</b>\n'
+                        f'<code>{invite_link}</code>\n\n'
+                        f'💡 <b>使用方法：</b>\n'
+                        f'1. 点击下方"分享邀请链接"按钮\n'
+                        f'2. 选择要分享的好友或群组\n'
+                        f'3. 发送给好友，让他们点击链接注册\n'
+                        f'4. 好友注册成功后，双方立即获得奖励'
+                    )
+                    
+                    buttons = [
+                        [Button.switch_inline('📤 分享邀请链接', share_text, same_peer=False)],
+                        [Button.inline('🔙 返回', 'cmd_back_to_start')]
+                    ]
+                    
+                    await event.edit(invite_message, buttons=buttons, parse_mode='html')
+                
                 elif command == 'tutorial':
                     # 显示使用教程
                     await event.answer()
@@ -1116,12 +1169,17 @@ class TelegramQueryBot:
                     
                     tutorial_message = (
                         '📙 <b>使用教程</b>\n\n'
-                        f'签到奖励▫️每日签到获得 {checkin_min_str}-{checkin_max_str} 积分\n'
-                        f'邀请奖励▫️邀请好友获得 {invite_reward_str} 积分\n'
-                        f'用户查询▫️每次消耗 {query_cost_str} 积分\n'
-                        f'关键词查询▫️每次消耗 {text_search_cost_str} 积分\n'
-                        f'开通VIP▫️38 U / 月\n'
-                        f'VIP特权▫️每月3999次查询'
+                        '<b>积分获取方式：</b>\n'
+                        f'• 每日签到可获得 {checkin_min_str}-{checkin_max_str} 积分\n'
+                        '• 邀请好友注册，双方各获得 5 积分\n'
+                        '• 通过充值购买积分（1 USDT = 7.2 积分）\n\n'
+                        '<b>积分消耗规则：</b>\n'
+                        f'• 查询用户信息，每次消耗 {query_cost_str} 积分\n'
+                        f'• 关键词搜索，每次消耗 {text_search_cost_str} 积分\n\n'
+                        '<b>VIP会员服务：</b>\n'
+                        '• 会员价格：38 USDT / 月\n'
+                        '• 会员权益：每月可查询 3999 次\n'
+                        '• 无需担心积分不足，畅享查询服务'
                     )
                     await event.respond(tutorial_message, parse_mode='html')
                 

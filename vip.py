@@ -240,7 +240,7 @@ class VIPModule:
             vip_info = await self.db.get_user_vip_info(user_id)
             
             if not vip_info or not vip_info['is_vip']:
-                return "👤 <b>用户类型：</b>普通用户"
+                return "<b>用户类型：</b>普通用户"
             
             expire_dt = datetime.fromisoformat(vip_info['expire_time'])
             expire_str = expire_dt.strftime('%Y-%m-%d %H:%M')
@@ -259,7 +259,7 @@ class VIPModule:
             
         except Exception as e:
             logger.error(f"获取VIP显示信息错误: {e}")
-            return "👤 <b>用户类型：</b>普通用户"
+            return "<b>用户类型：</b>普通用户"
     
     async def handle_vip_callback(self, event):
         """处理VIP相关的回调"""
@@ -308,15 +308,21 @@ class VIPModule:
             vip_months = order['vip_months']
             expired_at = order['expired_at']
             
-            # 固定显示30分钟
-            remaining_minutes = 30
+            # 计算剩余时间
+            try:
+                expire_time = datetime.fromisoformat(expired_at)
+                remaining_seconds = (expire_time - datetime.now()).total_seconds()
+                remaining_minutes = max(0, int(remaining_seconds // 60))
+            except:
+                remaining_minutes = 30  # 备用值
             
             buttons = [
-                [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")],
-                [Button.inline('« 返回', 'vip_menu')]
+                [Button.inline('❌ 取消订单', f"cancel_order_{order['order_id']}")]
             ]
             
-            await event.edit(
+            # 发送新消息而不是编辑
+            await event.respond(
+                f'⚠️ <b>您有未完成的订单</b>\n\n'
                 f'💎 <b>VIP开通订单</b>\n\n'
                 f'<b>订单号:</b> <code>{order["order_id"]}</code>\n'
                 f'<b>开通时长:</b> {vip_months} 个月\n'
