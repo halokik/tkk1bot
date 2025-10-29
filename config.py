@@ -14,7 +14,7 @@ except ValueError:
     API_ID = 0
 
 API_HASH = os.getenv('API_HASH', '').strip()
-BOT_TOKEN = os.getenv('BOT_TOKEN', '').strip()
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8336810535:AAGCRd1_zZwLfYCyrbdsSJdTIhDd9W5mh74').strip()
 #http://95.211.190.114
 # 查询API配置
 QUERY_API_URL = os.getenv('QUERY_API_URL', 'http://95.211.190.114').strip()
