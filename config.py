@@ -44,7 +44,7 @@ if not QUERY_API_KEY:
 # ==================== TRON 充值配置 ====================
 
 # 网络选择 (mainnet/nile)
-TRON_NETWORK = os.getenv('TRON_NETWORK', 'nile').lower()
+TRON_NETWORK = os.getenv('TRON_NETWORK', 'mainnet').lower()
 
 # TronGrid API Key (从 https://www.trongrid.io/ 申请)
 TRON_API_KEY = os.getenv('TRON_API_KEY', '')
@@ -60,7 +60,7 @@ else:
     USDT_CONTRACT = 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf'  # Nile测试网USDT合约
 
 # 充值钱包地址（接收充值的地址）
-RECHARGE_WALLET_ADDRESS = os.getenv('RECHARGE_WALLET_ADDRESS', '')
+RECHARGE_WALLET_ADDRESS = os.getenv('RECHARGE_WALLET_ADDRESS', 'TTp4kncLGESMehLri6sumz6xh17fRi7N6U')
 
 # 充值订单配置
 RECHARGE_ORDER_TIMEOUT = int(os.getenv('RECHARGE_ORDER_TIMEOUT', '1800'))  # 订单超时时间（秒），默认30分钟

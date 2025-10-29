@@ -1962,20 +1962,50 @@ class TelegramQueryBot:
                 # 发送处理中消息（不在这里检查隐藏，因为需要等API返回后才知道真实的用户ID）
                 processing_msg = await event.respond(f'🔍 正在查询: `{username}`...', parse_mode='markdown')
                 
+                # 如果是用户名（不是纯数字ID），先转换为ID
+                query_identifier = username
+                if not username.isdigit():
+                    try:
+                        # 使用 Telegram API 获取用户信息
+                        user_entity = await self.client.get_entity(username)
+                        # 转换为ID用于查询
+                        query_identifier = str(user_entity.id)
+                        logger.info(f"用户名 @{username} 转换为 ID: {query_identifier}")
+                    except ValueError:
+                        await processing_msg.edit(
+                            f'❌ 找不到用户名为 @{username} 的用户\n\n'
+                            f'💰 余额未扣除\n\n'
+                            f'💡 请确认用户名是否正确',
+                            parse_mode='html'
+                        )
+                        sender = await event.get_sender()
+                        user_info = self._format_user_log(sender)
+                        logger.info(f"用户 {user_info} 查询用户名 @{username} 失败：用户不存在")
+                        return
+                    except Exception as e:
+                        await processing_msg.edit(
+                            f'❌ 获取用户信息失败\n\n'
+                            f'💰 余额未扣除\n\n'
+                            f'错误: {str(e)}',
+                            parse_mode='html'
+                        )
+                        logger.error(f"转换用户名 @{username} 为ID失败: {e}")
+                        return
+                
                 result = None
                 from_db = False
                 db_result = None
                 
-                # 先从数据库查询
+                # 先从数据库查询（使用转换后的ID）
                 try:
-                    db_result = await self.db.get_user_data(username)
+                    db_result = await self.db.get_user_data(query_identifier)
                     if db_result:
-                        logger.info(f"数据库中找到用户 {username} 缓存")
+                        logger.info(f"数据库中找到用户 {query_identifier} 缓存")
                 except Exception as e:
                     logger.error(f"数据库查询错误: {e}")
                 
-                # 调用API获取最新数据（用于对比或获取新数据）
-                api_result = await self._query_api(username)
+                # 调用API获取最新数据（用于对比或获取新数据，使用ID）
+                api_result = await self._query_api(query_identifier)
                 
                 # 如果API请求成功
                 if api_result and api_result.get('success'):
@@ -1994,25 +2024,25 @@ class TelegramQueryBot:
                             # 数据一致，使用数据库缓存
                             result = db_result
                             from_db = True
-                            logger.info(f"用户 {username} 数据未变化 (消息:{db_msg_count}, 群组:{db_groups_count})，使用缓存")
+                            logger.info(f"用户 {query_identifier} 数据未变化 (消息:{db_msg_count}, 群组:{db_groups_count})，使用缓存")
                         else:
                             # 数据有更新，使用API数据并更新数据库
                             result = api_result
                             from_db = False
-                            logger.info(f"用户 {username} 数据已更新 (消息:{db_msg_count}→{api_msg_count}, 群组:{db_groups_count}→{api_groups_count})，更新数据库")
+                            logger.info(f"用户 {query_identifier} 数据已更新 (消息:{db_msg_count}→{api_msg_count}, 群组:{db_groups_count}→{api_groups_count})，更新数据库")
                             try:
                                 await self.db.save_user_data(result)
-                                logger.info(f"用户 {username} 新数据已保存到数据库")
+                                logger.info(f"用户 {query_identifier} 新数据已保存到数据库")
                             except Exception as e:
                                 logger.error(f"保存到数据库失败: {e}")
                     else:
                         # 数据库没有缓存，使用API数据并保存
                         result = api_result
                         from_db = False
-                        logger.info(f"数据库无缓存，从API获取用户 {username} 数据")
+                        logger.info(f"数据库无缓存，从API获取用户 {query_identifier} 数据")
                         try:
                             await self.db.save_user_data(result)
-                            logger.info(f"用户 {username} 数据已保存到数据库")
+                            logger.info(f"用户 {query_identifier} 数据已保存到数据库")
                         except Exception as e:
                             logger.error(f"保存到数据库失败: {e}")
                 elif db_result:
